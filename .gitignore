@@ -1,0 +1,32 @@
+# Environment and secrets
+.env
+*.key
+*.crt
+*.pem
+
+# Service data directories
+certs/
+logs/
+tailscale/state/
+code-server/
+jupyter/workspace/
+authelia/
+grafana-export/
+grafana-backup-*.tar.gz
+grafana/datasources/
+
+# Temporary files
+*.log
+*.tmp
+*.bak
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo

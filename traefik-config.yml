@@ -1,0 +1,18 @@
+tls:
+  certificates:
+    - certFile: /certs/blink.tail8ab50a.ts.net.crt
+      keyFile: /certs/blink.tail8ab50a.ts.net.key
+    - certFile: /certs/cert.pem
+      keyFile: /certs/key.pem
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /certs/blink.tail8ab50a.ts.net.crt
+        keyFile: /certs/blink.tail8ab50a.ts.net.key
+metrics:
+  prometheus:
+    buckets:
+      - 0.1
+      - 0.3
+      - 1.2
+      - 5.0

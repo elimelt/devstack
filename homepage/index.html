@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DevStack</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: monospace;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            height: 100vh;
+            display: grid;
+            grid-template-rows: auto 1fr;
+        }
+
+        header {
+            background: #222;
+            border-bottom: 1px solid #333;
+            padding: 10px;
+        }
+
+        #service-list {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+        }
+
+        #service-list button {
+            background: #2a2a2a;
+            color: #e0e0e0;
+            border: 1px solid #333;
+            padding: 5px 10px;
+            cursor: pointer;
+            font-family: monospace;
+        }
+
+        #service-list button:hover {
+            background: #333;
+        }
+
+        #service-list button.external {
+            background: #1a1a1a;
+            border-color: #444;
+            color: #999;
+        }
+
+        #service-list button.external:hover {
+            background: #222;
+            color: #bbb;
+        }
+
+        #service-list button.external::after {
+            content: ' ↗';
+        }
+
+        #grid-container {
+            display: grid;
+            gap: 2px;
+            background: #111;
+            padding: 2px;
+            overflow: hidden;
+        }
+
+        .frame-container {
+            display: grid;
+            grid-template-rows: auto 1fr;
+            background: #1a1a1a;
+            border: 1px solid #333;
+        }
+
+        .frame-container.active {
+            border-color: #666;
+        }
+
+        .frame-header {
+            background: #222;
+            padding: 5px 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #333;
+            gap: 10px;
+        }
+
+        .frame-header span {
+            flex: 1;
+        }
+
+        .open-btn,
+        .close-btn {
+            background: none;
+            border: none;
+            color: #e0e0e0;
+            cursor: pointer;
+            padding: 0 5px;
+            font-family: monospace;
+        }
+
+        .open-btn:hover,
+        .close-btn:hover {
+            color: #fff;
+        }
+
+        .service-frame {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        #help {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            background: #222;
+            border: 1px solid #333;
+            padding: 10px;
+            font-size: 0.8em;
+            opacity: 0.7;
+        }
+
+        #help:hover {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div id="service-list">
+            <button data-name="Code Server" data-url="/code/" data-embeddable="true">code</button>
+            <button data-name="JupyterLab" data-url="/jupyter/" data-embeddable="true">jupyter</button>
+            <button data-name="Grafana" data-url="/grafana/" data-embeddable="false" class="external">grafana</button>
+            <button data-name="Prometheus" data-url="/prometheus/" data-embeddable="true">prometheus</button>
+            <button data-name="Portainer" data-url="/portainer/" data-embeddable="false" class="external">portainer</button>
+            <button data-name="Traefik" data-url="/dashboard/" data-embeddable="true">traefik</button>
+            <button id="clear-all">clear</button>
+        </div>
+    </header>
+    <main id="grid-container"></main>
+    <div id="help">
+        ctrl+n: next | ctrl+p: prev | ctrl+w: close | ctrl+shift+c: clear | ↗: external
+    </div>
+    <script type="module" src="app.js"></script>
+</body>
+</html>
