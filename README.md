@@ -5,28 +5,31 @@ Self-hosted development environment with Traefik reverse proxy, Tailscale VPN, a
 ## Features
 
 - Secure remote access via Tailscale VPN with HTTPS
+- **Public API Gateway** - Expose APIs to the internet (isolated from VPN)
 - Automated setup and configuration
 - Full observability stack (Prometheus + Grafana)
 - Browser-based development tools (VS Code, JupyterLab)
 - PostgreSQL and Redis databases
 - Docker management via Portainer
+- Rate limiting and security headers for public APIs
 
 ## Services
 
-| Service | Description | URL Path |
-|---------|-------------|----------|
-| Traefik | Reverse proxy with HTTPS | `/dashboard/` |
-| Tailscale | VPN for secure remote access | - |
-| Portainer | Docker management UI | `/portainer/` |
-| Code Server | VS Code in browser | `/code/` |
-| JupyterLab | Interactive notebooks | `/jupyter/` |
-| Grafana | Metrics and logs visualization | `/grafana/` |
-| Prometheus | Metrics collection | `/prometheus/` |
-| Loki | Log aggregation (API only) | - |
-| Promtail | Log collector | - |
-| PostgreSQL | Relational database | `postgres:5432` |
-| Redis | Cache and message broker | `redis:6379` |
-| Homepage | Service dashboard | `/` |
+| Service | Description | URL Path | Auth |
+|---------|-------------|----------|------|
+| Public API | Public API endpoints | `https://your-machine.tail12345.ts.net:10000/` | No |
+| Traefik | Reverse proxy with HTTPS | `/dashboard/` | Yes |
+| Tailscale | VPN for secure remote access | - | - |
+| Portainer | Docker management UI | `/portainer/` | Yes |
+| Code Server | VS Code in browser | `/code/` | Yes |
+| JupyterLab | Interactive notebooks | `/jupyter/` | Yes |
+| Grafana | Metrics and logs visualization | `/grafana/` | Yes |
+| Prometheus | Metrics collection | `/prometheus/` | Yes |
+| Loki | Log aggregation | - | - |
+| Promtail | Log collector | - | - |
+| PostgreSQL | Relational database | `postgres:5432` | - |
+| Redis | Cache and message broker | `redis:6379` | - |
+| Homepage | Service dashboard | `/` | Yes |
 
 ## Quick Start
 
@@ -283,6 +286,32 @@ openssl s_client -connect your-domain:443 -servername your-domain
 
 ### Homepage multiplexor
 The homepage provides a multiplexor interface for managing multiple services. Services that support iframe embedding (Code Server, JupyterLab, Prometheus, Traefik) can be added to the grid. Services with CSP restrictions (Grafana, Portainer) are marked with ↗ and open in new tabs when clicked.
+
+### Public API
+
+The public API provides endpoints for system monitoring, caching, and visitor tracking.
+
+#### Endpoints
+
+- `/` - API information and available endpoints
+- `/health` - Health check with Redis status
+- `/example` - Example endpoint
+- `/cache/{key}` - GET/POST for Redis caching
+- `/visitors` - Active visitors and visit log
+- `/ws/visitors` - WebSocket for real-time visitor updates
+- `/system` - Container stats (CPU, memory)
+
+#### Access
+
+Via Tailscale VPN:
+```bash
+curl https://your-machine.tail12345.ts.net:10000/health
+```
+
+Via localhost:
+```bash
+curl http://localhost:10000/health
+```
 
 ### Certificate errors
 ```bash

@@ -292,6 +292,25 @@ services:
       - "traefik.http.routers.homepage.middlewares=auth"
       - "traefik.http.routers.homepage.priority=1"
 
+  public-api:
+    build: ${API_PATH:-./api}
+    container_name: public-api
+    restart: always
+    user: root
+    ports:
+      - "127.0.0.1:10000:80"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - CORS_ORIGINS=${API_CORS_ORIGINS:-http://localhost:3000,https://yourdomain.com}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    depends_on:
+      - redis
+    networks:
+      - dev_network
+
 volumes:
   portainer_data:
   postgres_data:
