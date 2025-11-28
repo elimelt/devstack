@@ -71,24 +71,6 @@ def get_location(ip: str):
     except Exception:
         return default
 
-@app.get("/")
-async def root():
-    return {
-        "name": "DevStack Public API",
-        "version": "1.0.0",
-        "description": "Public API endpoints for DevStack",
-        "endpoints": [
-            {"path": "/", "method": "GET", "description": "API info"},
-            {"path": "/health", "method": "GET", "description": "Health check"},
-            {"path": "/example", "method": "GET", "description": "Example endpoint"},
-            {"path": "/cache/{key}", "method": "GET", "description": "Get cached value"},
-            {"path": "/cache/{key}", "method": "POST", "description": "Set cached value"},
-            {"path": "/visitors", "method": "GET", "description": "Get active visitors and visit log"},
-            {"path": "/ws/visitors", "method": "WS", "description": "Real-time visitor updates via WebSocket"},
-            {"path": "/system", "method": "GET", "description": "System health and container status"},
-        ]
-    }
-
 @app.get("/health")
 async def health():
     redis_status = "disconnected"

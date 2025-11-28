@@ -266,12 +266,20 @@ services:
     image: gcr.io/cadvisor/cadvisor:${CADVISOR_VERSION:-latest}
     container_name: cadvisor
     restart: always
+    command:
+      - '--docker_only=true'
+      - '--housekeeping_interval=30s'
+      - '--disable_metrics=disk,diskIO,percpu'
+      - '--store_container_labels=false'
     volumes:
       - /:/rootfs:ro
       - /var/run:/var/run:ro
       - /sys:/sys:ro
       - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
     privileged: true
+    devices:
+      - /dev/kmsg
     networks:
       - dev_network
 
