@@ -10,7 +10,6 @@ def _get_pool_stats(client) -> dict[str, Any]:
         if not pool:
             return stats
         stats["max"] = getattr(pool, "max_connections", None)
-        # Best-effort internals; may vary across redis-py versions
         created = getattr(pool, "_created_connections", None)
         in_use = getattr(pool, "_in_use_connections", None)
         available = getattr(pool, "_available_connections", None)
@@ -20,7 +19,6 @@ def _get_pool_stats(client) -> dict[str, Any]:
             stats["in_use"] = len(in_use)  # type: ignore[arg-type]
         if available is not None:
             stats["available"] = len(available)  # type: ignore[arg-type]
-        # Blocking queue size if available
         q = getattr(pool, "queue", None)
         if q is not None and hasattr(q, "qsize"):
             try:
@@ -28,7 +26,6 @@ def _get_pool_stats(client) -> dict[str, Any]:
             except Exception:
                 pass
     except Exception:
-        # Never fail the app due to stats collection
         pass
     return stats
 
@@ -74,10 +71,8 @@ class RedisDebugWrapper:
         if not callable(attr):
             return attr
 
-        # Async function (e.g., get/setex/keys/publish/...)
         if asyncio.iscoroutinefunction(attr):
             async def _wrapped(*args, **kwargs):
-                # Only log at DEBUG for high-volume calls
                 self._logger.debug("redis.%s args=%s kwargs=%s pool=%s", name, _short_args(args), _short_kwargs(kwargs), _get_pool_stats(self._inner))
                 try:
                     res = await attr(*args, **kwargs)
@@ -87,7 +82,6 @@ class RedisDebugWrapper:
                     raise
             return _wrapped
 
-        # Synchronous callable (rare, e.g., properties or helpers)
         def _wrapped_sync(*args, **kwargs):
             try:
                 return attr(*args, **kwargs)
@@ -100,7 +94,6 @@ class RedisDebugWrapper:
 def _short_args(args: tuple[Any, ...]) -> tuple[Any, ...]:
     if not args:
         return args
-    # Avoid logging large payloads
     trimmed = []
     for a in args:
         if isinstance(a, str) and len(a) > 200:
@@ -122,7 +115,7 @@ def _short_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def wrap_redis_client(client, logger: logging.Logger):
+def wrap_redis_client(client, logger: logging.Logger) -> RedisDebugWrapper:
     return RedisDebugWrapper(client, logger)
 
 

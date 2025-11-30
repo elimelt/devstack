@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 from pydantic import BaseModel
 
 from api import state
@@ -14,7 +14,7 @@ router = APIRouter()
 
 
 @router.get("/cache/{key}")
-async def get_cache(key: str):
+async def get_cache(key: str) -> Dict[str, Any]:
     if not state.redis_client:
         return {"error": "Redis not connected"}
 
@@ -26,7 +26,7 @@ async def get_cache(key: str):
 
 
 @router.post("/cache/{key}")
-async def set_cache(key: str, data: CacheValue):
+async def set_cache(key: str, data: CacheValue) -> Dict[str, Any]:
     if not state.redis_client:
         return {"error": "Redis not connected"}
 

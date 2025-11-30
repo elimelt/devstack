@@ -1,10 +1,11 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 import os
+import logging
 import redis.asyncio as redis
 import geoip2.database
 from typing import Optional
-import logging
+from collections.abc import AsyncIterator
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from api.bus import EventBus
 from api import state
 from contextlib import asynccontextmanager
@@ -41,12 +42,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Optional request logging middleware
 if os.getenv("REQUEST_DEBUG", "0") == "1":
     logging.getLogger("api.http").setLevel(logging.DEBUG)
     app.add_middleware(HTTPLogMiddleware)
 
-# Optional websocket debug logging
 if os.getenv("WS_DEBUG", "0") == "1":
     logging.getLogger("api.ws.visitors").setLevel(logging.INFO)
     logging.getLogger("api.ws.chat").setLevel(logging.INFO)
@@ -56,7 +55,7 @@ event_bus: Optional[EventBus] = None
 geoip_reader = None
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI):
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     global redis_client, geoip_reader, event_bus
     stop_event: Optional[asyncio.Event] = None
     agent_tasks: list[asyncio.Task] = []
@@ -64,7 +63,6 @@ async def lifespan(_app: FastAPI):
     redis_port = int(os.getenv("REDIS_PORT", "6379"))
     redis_password = os.getenv("REDIS_PASSWORD", "")
 
-    # Bounded Redis pool to avoid FD exhaustion under load
     max_redis_conns = int(os.getenv("REDIS_MAX_CONNECTIONS", "200"))
     pool_timeout = float(os.getenv("REDIS_POOL_TIMEOUT_SEC", "5"))
     redis_pool = RedisConnectionPool(
@@ -75,12 +73,10 @@ async def lifespan(_app: FastAPI):
         timeout=pool_timeout,
     )
     candidate_client = redis.Redis(connection_pool=redis_pool, decode_responses=True)
-    # Support tests that monkeypatch Redis(...) to return an awaitable wrapper
     if hasattr(candidate_client, "__await__"):
         redis_client = await candidate_client  # type: ignore[assignment]
     else:
         redis_client = candidate_client
-    # Optional Redis command/connection debug wrapper
     if os.getenv("REDIS_DEBUG", "0") == "1":
         logging.getLogger("api.redis").setLevel(logging.DEBUG)
         redis_logger = logging.getLogger("api.redis")
@@ -91,20 +87,16 @@ async def lifespan(_app: FastAPI):
     if os.path.exists(geoip_db_path):
         geoip_reader = geoip2.database.Reader(geoip_db_path)
 
-    # Mirror into shared state for controllers
     state.redis_client = redis_client
     state.event_bus = event_bus
     state.geoip_reader = geoip_reader
 
-    # Optional DB: enable with ENABLE_CHAT_DB=1
     enable_db = os.getenv("ENABLE_CHAT_DB", "0") == "1"
     if enable_db:
         try:
             await db.init_pool()
         except Exception:
-            # Continue without DB
             pass
-    # Optional agent
     enable_agent = os.getenv("ENABLE_AGENT", "0") == "1"
     if enable_agent:
         stop_event = asyncio.Event()
@@ -126,7 +118,6 @@ async def lifespan(_app: FastAPI):
             except Exception:
                 pass
         if redis_client:
-            # FakeRedis in tests may not implement aclose()
             aclose = getattr(redis_client, "aclose", None)
             if callable(aclose):
                 await aclose()
@@ -142,7 +133,6 @@ async def lifespan(_app: FastAPI):
 
 app.router.lifespan_context = lifespan
 
-# Mount controllers (HTTP + WS)
 app.include_router(health_router)
 app.include_router(example_router)
 app.include_router(cache_router)

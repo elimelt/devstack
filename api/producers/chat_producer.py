@@ -40,13 +40,11 @@ def build_chat_message(channel: str, sender: str, text: str) -> ChatMessageEvent
 
 async def publish_chat_message(event_bus: EventBus, channel: str, event: ChatMessageEvent) -> None:
     await event_bus.publish_chat(channel, event)
-    # Persist to DB if enabled and pool is initialized
     try:
         await db.insert_chat_message(channel, event["sender"], event["text"], event["timestamp"], message_id=event.get("id"), reply_to=event.get("reply_to"))
-        from api.bus import EventBus as _Bus  # local import to avoid cycle at import time
+        from api.bus import EventBus as _Bus
         await db.insert_event(_Bus.chat_channel(channel), "chat_message", event, event["timestamp"])
     except Exception:
-        # Don't break real-time if storage fails
         pass
 
 

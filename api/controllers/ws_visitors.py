@@ -20,7 +20,7 @@ _logger.propagate = False
 
 
 @router.websocket("/ws/visitors")
-async def websocket_visitors(websocket: WebSocket):
+async def websocket_visitors(websocket: WebSocket) -> None:
     await websocket.accept()
 
     client_ip = websocket.headers.get("x-forwarded-for", websocket.client.host)
@@ -32,7 +32,6 @@ async def websocket_visitors(websocket: WebSocket):
     logger = _logger
     max_per_ip = int(os.getenv("WS_VISITORS_MAX_PER_IP", "50"))
 
-    # Track and optionally cap per-IP connections
     async with state.ws_visitors_lock:
         current = state.active_ws_visitors_by_ip.get(client_ip, 0) + 1
         state.active_ws_visitors_by_ip[client_ip] = current
@@ -40,7 +39,6 @@ async def websocket_visitors(websocket: WebSocket):
             logger.info("ws_visitors.reject ip=%s reason=per_ip_limit current=%s limit=%s origin=%s ua=%s",
                         client_ip, current, max_per_ip, origin, user_agent)
             await websocket.close(code=1008)
-            # Decrement since we rejected
             state.active_ws_visitors_by_ip[client_ip] = current - 1
             return
     logger.info("ws_visitors.accept ip=%s origin=%s ua=%s active_per_ip=%s",
@@ -89,7 +87,6 @@ async def websocket_visitors(websocket: WebSocket):
         else:
             await pubsub.close()
         await leave_visitor(state.redis_client, state.event_bus, client_ip, visitor_id)
-        # Decrement counter
         async with state.ws_visitors_lock:
             if client_ip in state.active_ws_visitors_by_ip:
                 state.active_ws_visitors_by_ip[client_ip] = max(0, state.active_ws_visitors_by_ip[client_ip] - 1)

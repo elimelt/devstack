@@ -7,7 +7,7 @@ router = APIRouter()
 
 
 @router.get("/visitors")
-async def get_visitors():
+async def get_visitors() -> dict:
     if not state.redis_client:
         return {"error": "Redis not connected"}
 

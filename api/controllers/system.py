@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 import subprocess
 import json
+from typing import Any, Dict
 
 from api import state
 
@@ -8,7 +9,7 @@ router = APIRouter()
 
 
 @router.get("/system")
-async def get_system():
+async def get_system() -> Dict[str, Any]:
     if state.redis_client:
         cached = await state.redis_client.get("system_stats")
         if cached:

@@ -86,7 +86,7 @@ def main():
     max_sleep = int(env("AGENT_MAX_SLEEP_SEC", "300"))
     max_replies = int(env("AGENT_MAX_REPLIES", "3"))
     history_hours = int(env("AGENT_HISTORY_HOURS", "24"))
-    model = env("AGENT_MODEL", "gemini-2.5-flash")
+    model = env("AGENT_MODEL", "gemini-2.5-pro")
     sender = env("AGENT_SENDER", "agent:gemini")
 
     # Clients

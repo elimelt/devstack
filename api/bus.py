@@ -1,6 +1,3 @@
-"""
-Event bus for the API, backed by Redis.
-"""
 import json
 from typing import Final
 import redis.asyncio as redis

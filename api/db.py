@@ -5,11 +5,6 @@ from datetime import datetime, timezone
 import psycopg
 from psycopg import errors as pg_errors
 
-# Note: We avoid a global AsyncConnectionPool because pools/locks are loop-bound
-# and Starlette/Uvicorn can bind startup and request handling to different loops.
-# Instead, we create short-lived async connections per operation.
-
-
 def _dsn_from_env() -> str:
     host = os.getenv("POSTGRES_HOST", os.getenv("PGHOST", "postgres"))
     port = int(os.getenv("POSTGRES_PORT", os.getenv("PGPORT", "5432")))
@@ -20,12 +15,10 @@ def _dsn_from_env() -> str:
 
 
 async def init_pool() -> None:
-    # Backwards-compatible no-op initializer that ensures schema exists.
     await _ensure_schema()
 
 
 async def close_pool() -> None:
-    # No global pool to close
     return
 
 
@@ -56,14 +49,12 @@ async def _ensure_schema() -> None:
             CREATE INDEX IF NOT EXISTS idx_events_type_ts ON events (type, ts DESC);
             """
         )
-        # Backfill schema alterations if table existed without columns
         try:
             await conn.execute("ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ NULL;")
             await conn.execute("ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS message_id TEXT NULL;")
             await conn.execute("ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS reply_to TEXT NULL;")
         except Exception:
             pass
-        # Ensure index exists (after columns are present)
         try:
             await conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_chat_message_id ON chat_messages (message_id) WHERE message_id IS NOT NULL;")
         except Exception:
@@ -71,7 +62,6 @@ async def _ensure_schema() -> None:
 
 
 async def insert_chat_message(channel: str, sender: str, text: str, ts_iso: str, message_id: Optional[str] = None, reply_to: Optional[str] = None) -> None:
-    # Parse ISO ts (trusted from server build) to timestamptz
     ts = datetime.fromisoformat(ts_iso.replace("Z", "+00:00"))
     dsn = _dsn_from_env()
     async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
@@ -187,12 +177,6 @@ async def fetch_events(
 
 
 async def soft_delete_chat_history(channel: Optional[str] = None, before_iso: Optional[str] = None) -> int:
-    """
-    Soft-delete chat messages by setting deleted_at, filtering them out from history.
-    - If channel is provided, restrict to that channel; otherwise all channels.
-    - If before_iso is provided, delete only messages with ts < before; otherwise all.
-    Returns number of rows affected (best effort).
-    """
     dsn = _dsn_from_env()
     conditions: List[str] = ["deleted_at IS NULL"]
     params: list[Any] = []

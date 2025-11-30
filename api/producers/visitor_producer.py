@@ -8,7 +8,7 @@ import geoip2.database
 from api import db
 
 
-def get_location(geoip_reader: geoip2.database.Reader | None, ip: str):
+def get_location(geoip_reader: geoip2.database.Reader | None, ip: str) -> Dict[str, Any]:
     default = {"country": "Unknown", "city": "Unknown", "lat": None, "lon": None}
     if not geoip_reader:
         return default
@@ -25,7 +25,7 @@ def get_location(geoip_reader: geoip2.database.Reader | None, ip: str):
 
 
 async def join_visitor(
-    redis_client: redis.Redis, event_bus: EventBus | None, geoip_reader, client_ip: str, visitor_key: str
+    redis_client: redis.Redis, event_bus: EventBus | None, geoip_reader: geoip2.database.Reader | None, client_ip: str, visitor_key: str
 ) -> Dict[str, Any]:
     location = get_location(geoip_reader, client_ip)
     visitor_data = {

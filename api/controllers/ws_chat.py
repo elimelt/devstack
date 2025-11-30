@@ -10,7 +10,7 @@ router = APIRouter()
 
 
 @router.websocket("/ws/chat/{channel}")
-async def websocket_chat(websocket: WebSocket, channel: str):
+async def websocket_chat(websocket: WebSocket, channel: str) -> None:
     await websocket.accept()
 
     client_ip = websocket.headers.get("x-forwarded-for", websocket.client.host)

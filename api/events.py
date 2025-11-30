@@ -28,16 +28,16 @@ class PingEvent(TypedDict):
     type: Literal["ping"]
 
 
-# Discriminated union of all visitor events the client may receive
 VisitorEvent = Union[JoinEvent, LeaveEvent, PingEvent]
 
 
-# Chat events
 class ChatMessageEvent(TypedDict):
     type: Literal["chat_message"]
     channel: str
     sender: str
     text: str
     timestamp: str
+    id: Optional[str]
+    reply_to: Optional[str]
 
 
