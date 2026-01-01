@@ -5,7 +5,7 @@ import os
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from api import state
+from api import db, state
 from api.producers.visitor_producer import heartbeat as hb
 from api.producers.visitor_producer import join_visitor, leave_visitor
 
@@ -19,6 +19,35 @@ if not _logger.handlers:
     _logger.addHandler(_handler)
 _logger.setLevel(logging.INFO if os.getenv("WS_DEBUG", "0") == "1" else logging.WARNING)
 _logger.propagate = False
+
+
+async def _handle_analytics_batch(data: dict, client_ip: str) -> None:
+    """Handle an analytics.batch message containing click events."""
+    payload = data.get("payload", {})
+    topic = payload.get("topic")
+    events = payload.get("events", [])
+
+    if topic != "clicks":
+        _logger.warning(
+            "analytics.batch unknown topic=%s ip=%s",
+            topic,
+            client_ip,
+        )
+        return
+
+    if not events:
+        return
+
+    try:
+        inserted = await db.insert_click_events(events, client_ip)
+        _logger.info(
+            "analytics.batch.clicks ip=%s count=%d inserted=%d",
+            client_ip,
+            len(events),
+            inserted,
+        )
+    except Exception:
+        _logger.exception("analytics.batch.clicks failed ip=%s", client_ip)
 
 
 @router.websocket("/ws/visitors")
@@ -91,6 +120,16 @@ async def websocket_visitors(websocket: WebSocket) -> None:
             data = await websocket.receive_text()
             if data == "pong":
                 continue
+
+            # Try to parse as JSON for analytics.batch messages
+            try:
+                msg = json.loads(data)
+                if isinstance(msg, dict) and msg.get("type") == "analytics.batch":
+                    # Fire-and-forget: don't block the message loop
+                    asyncio.create_task(_handle_analytics_batch(msg, client_ip))
+            except (json.JSONDecodeError, TypeError):
+                # Not JSON, ignore
+                pass
     except WebSocketDisconnect:
         pass
     finally:

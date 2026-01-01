@@ -630,3 +630,90 @@ async def get_visitor_analytics_summary(
             "recurring_visitors": row[4] or 0,
             "avg_visit_frequency_per_day": float(row[5]) if row[5] else 0,
         }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Click Analytics Functions
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def insert_click_events(events: list[dict[str, Any]], client_ip: str) -> int:
+    """Insert a batch of click events into the events table.
+
+    Each click event is stored with topic='clicks' and type='click'.
+    The client_ip is added to the payload for attribution.
+
+    Returns the number of events inserted.
+    """
+    if not events:
+        return 0
+
+    dsn = _dsn_from_env()
+    inserted = 0
+    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+        for event in events:
+            # Use the event's ts if available, otherwise use current time
+            ts_ms = event.get("ts")
+            if ts_ms and isinstance(ts_ms, int | float):
+                ts = datetime.fromtimestamp(ts_ms / 1000, tz=UTC)
+            else:
+                ts = datetime.now(UTC)
+
+            # Add client_ip to the payload for attribution
+            payload = {**event, "client_ip": client_ip}
+
+            await conn.execute(
+                "INSERT INTO events (topic, type, ts, payload) VALUES (%s, %s, %s, %s)",
+                ("clicks", "click", ts, Json(payload)),
+            )
+            inserted += 1
+
+    return inserted
+
+
+async def fetch_click_events(
+    start_date: str | None = None,
+    end_date: str | None = None,
+    page_path: str | None = None,
+    client_ip: str | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """Fetch click events with optional filters."""
+    dsn = _dsn_from_env()
+    clauses: list[str] = ["topic = 'clicks'", "type = 'click'"]
+    params: list[Any] = []
+
+    if start_date:
+        start_ts = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
+        clauses.append("ts >= %s")
+        params.append(start_ts)
+    if end_date:
+        end_ts = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+        clauses.append("ts < %s")
+        params.append(end_ts)
+    if page_path:
+        clauses.append("payload->>'page'->>'path' = %s")
+        params.append(page_path)
+    if client_ip:
+        clauses.append("payload->>'client_ip' = %s")
+        params.append(client_ip)
+
+    where = " AND ".join(clauses)
+    sql = f"""
+        SELECT ts, payload
+        FROM events
+        WHERE {where}
+        ORDER BY ts DESC
+        LIMIT %s
+    """
+    params.append(limit)
+
+    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+        rows = await conn.execute(sql, tuple(params))
+        result: list[dict[str, Any]] = []
+        async for row in rows:
+            result.append({
+                "timestamp": row[0].astimezone(UTC).isoformat(),
+                "event": row[1],
+            })
+        return result

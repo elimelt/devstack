@@ -1,27 +1,3 @@
-"""
-Batch job for computing visitor analytics.
-
-This job processes visitor join/leave events and calculates:
-- Time spent per visit (session duration)
-- Total time spent per visitor (aggregate across all visits)
-- Visit frequency (number of visits per visitor over time)
-- Recurring visitor identification (visitors with multiple historical visits)
-- Historical time spent trends
-
-Designed to run daily via cron or external scheduler.
-Recommended schedule: Daily at 00:05 UTC (after midnight to capture full previous day)
-
-Example cron entry:
-    5 0 * * * cd /app && python -m api.batch.visitor_analytics
-
-Usage:
-    python -m api.batch.visitor_analytics [--days N] [--dry-run]
-
-Arguments:
-    --days N    Number of days to process (default: 1, meaning yesterday)
-    --dry-run   Print computed stats without saving to database
-"""
-
 import argparse
 import asyncio
 import logging
@@ -31,7 +7,6 @@ from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-# Add parent directory to path for imports when running as script
 if __name__ == "__main__":
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
@@ -45,19 +20,16 @@ logger = logging.getLogger(__name__)
 
 
 def _parse_timestamp(ts_str: str) -> datetime:
-    """Parse ISO8601 timestamp string to datetime."""
     return datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
 
 
 def _extract_ip_from_payload(payload: dict) -> str | None:
-    """Extract visitor IP from event payload."""
     if "visitor" in payload and isinstance(payload["visitor"], dict):
         return payload["visitor"].get("ip")
     return payload.get("ip")
 
 
 def _extract_location_from_payload(payload: dict) -> tuple[str | None, str | None]:
-    """Extract location (country, city) from event payload."""
     location = {}
     if "visitor" in payload and isinstance(payload["visitor"], dict):
         location = payload["visitor"].get("location", {})
@@ -70,11 +42,6 @@ async def compute_visitor_stats(
     start_time: datetime,
     end_time: datetime,
 ) -> list[dict[str, Any]]:
-    """
-    Compute visitor statistics from events in the given time range.
-
-    Returns a list of computed stats per visitor IP.
-    """
     logger.info("Fetching visitor events from %s to %s", start_time, end_time)
     events = await db.fetch_visitor_events_for_analytics(start_time, end_time)
     logger.info("Found %d visitor events", len(events))
@@ -82,10 +49,8 @@ async def compute_visitor_stats(
     if not events:
         return []
 
-    # Track sessions per visitor IP
-    # session = period between join and leave
     visitor_sessions: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    active_sessions: dict[str, datetime] = {}  # IP -> join timestamp
+    active_sessions: dict[str, datetime] = {}
     visitor_locations: dict[str, tuple[str | None, str | None]] = {}
 
     for event in events:
@@ -107,7 +72,7 @@ async def compute_visitor_stats(
             if ip in active_sessions:
                 join_time = active_sessions.pop(ip)
                 duration = (timestamp - join_time).total_seconds()
-                # Cap session duration at 24 hours to handle orphaned sessions
+                # Cap at 24h to handle orphaned sessions without matching leave events
                 duration = min(duration, 86400)
                 visitor_sessions[ip].append({
                     "join_time": join_time,
@@ -115,7 +80,6 @@ async def compute_visitor_stats(
                     "duration_seconds": duration,
                 })
 
-    # Handle active sessions at end of period (assume they left at period end)
     for ip, join_time in active_sessions.items():
         duration = (end_time - join_time).total_seconds()
         duration = min(duration, 86400)
@@ -125,7 +89,6 @@ async def compute_visitor_stats(
             "duration_seconds": duration,
         })
 
-    # Compute statistics per visitor
     stats_list: list[dict[str, Any]] = []
     period_days = max(1, (end_time - start_time).days)
 
@@ -163,7 +126,6 @@ async def compute_visitor_stats(
 
 
 async def save_visitor_stats(stats_list: list[dict[str, Any]]) -> int:
-    """Save computed stats to the database. Returns count of saved records."""
     saved = 0
     for stats in stats_list:
         try:
@@ -188,19 +150,8 @@ async def save_visitor_stats(stats_list: list[dict[str, Any]]) -> int:
 
 
 async def run_batch_job(days: int = 1, dry_run: bool = False) -> dict[str, Any]:
-    """
-    Run the visitor analytics batch job.
-
-    Args:
-        days: Number of days to process (1 = yesterday only)
-        dry_run: If True, compute but don't save to database
-
-    Returns:
-        Summary of the batch job results.
-    """
     logger.info("Starting visitor analytics batch job (days=%d, dry_run=%s)", days, dry_run)
 
-    # Initialize database schema if needed
     try:
         await db.init_pool()
     except Exception as e:
@@ -210,7 +161,6 @@ async def run_batch_job(days: int = 1, dry_run: bool = False) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
 
     for day_offset in range(days, 0, -1):
-        # Process each day separately
         end_time = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(
             days=day_offset - 1
         )
@@ -222,7 +172,7 @@ async def run_batch_job(days: int = 1, dry_run: bool = False) -> dict[str, Any]:
 
         if dry_run:
             logger.info("[DRY RUN] Would save %d visitor stats:", len(stats_list))
-            for s in stats_list[:5]:  # Show first 5
+            for s in stats_list[:5]:
                 logger.info(
                     "  - %s: %d visits, %.1f sec avg duration, recurring=%s",
                     s["visitor_ip"],
@@ -260,22 +210,6 @@ async def run_batch_job(days: int = 1, dry_run: bool = False) -> dict[str, Any]:
 
 
 async def start_analytics_scheduler(stop_event: asyncio.Event) -> list[asyncio.Task]:
-    """
-    Start the visitor analytics scheduler as a background task.
-
-    The scheduler runs the batch job at a configurable interval (default: daily).
-    It can be configured via environment variables:
-        - ANALYTICS_INTERVAL_HOURS: Hours between runs (default: 24)
-        - ANALYTICS_INITIAL_DELAY_SEC: Seconds to wait before first run (default: 60)
-        - ANALYTICS_DAYS: Number of days to process each run (default: 1)
-
-    Args:
-        stop_event: Event to signal shutdown.
-
-    Returns:
-        List containing the scheduler task.
-    """
-
     async def _scheduler_loop() -> None:
         interval_hours = int(os.getenv("ANALYTICS_INTERVAL_HOURS", "24"))
         days_to_process = int(os.getenv("ANALYTICS_DAYS", "1"))
@@ -294,12 +228,11 @@ async def start_analytics_scheduler(stop_event: asyncio.Event) -> list[asyncio.T
             except Exception:
                 logger.exception("Scheduled analytics batch job failed")
 
-            # Wait for next interval or stop
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
-                break  # stop_event was set
+                break
             except asyncio.TimeoutError:
-                pass  # Normal timeout, run again
+                pass
 
         logger.info("Visitor analytics scheduler stopped")
 
@@ -308,7 +241,6 @@ async def start_analytics_scheduler(stop_event: asyncio.Event) -> list[asyncio.T
 
 
 def main() -> None:
-    """CLI entry point for the batch job."""
     parser = argparse.ArgumentParser(
         description="Compute visitor analytics from event data.",
         formatter_class=argparse.RawDescriptionHelpFormatter,

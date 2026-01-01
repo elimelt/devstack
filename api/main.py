@@ -14,12 +14,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 from redis.asyncio import BlockingConnectionPool as RedisConnectionPool
 
 from api import db, state
 from api.agents.gemini_agent import start_agents
 from api.batch.visitor_analytics import start_analytics_scheduler
 from api.bus import EventBus
+from api.controllers.analytics_clicks import router as analytics_clicks_router
 from api.controllers.cache import router as cache_router
 from api.controllers.chat_history import router as chat_history_router
 from api.controllers.events_history import router as events_history_router
@@ -174,4 +176,7 @@ app.include_router(ws_chat_router)
 app.include_router(chat_history_router)
 app.include_router(events_history_router)
 app.include_router(visitor_analytics_router)
+app.include_router(analytics_clicks_router)
 app.include_router(when2meet_router, prefix="/w2m")
+
+Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)

@@ -1,19 +1,25 @@
 # Environment and secrets
 .env
+.env.*
 *.key
 *.crt
 *.pem
+secrets/
 
 # Service data directories
 certs/
 logs/
 tailscale/state/
-code-server/
-jupyter/workspace/
 authelia/
 grafana-export/
 grafana-backup-*.tar.gz
 grafana/datasources/
+code-server/
+jupyter/
+
+# Docker volumes and local data
+*.tar.gz
+docker-data/
 
 # Temporary files
 *.log
@@ -30,14 +36,23 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+*.sublime-*
 
-# python
+# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-*.pyw
-*.pyz
-*.pywz
-*.pyzw
-*.pyzwz
+.venv/
+venv/
+.python-version
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node (if any frontend tools)
+node_modules/
+.npm/

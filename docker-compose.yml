@@ -28,7 +28,7 @@ services:
     restart: always
     command:
       - "--api.dashboard=true"
-      - "--api.insecure=true"
+      - "--api.insecure=false"
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
       - "--entrypoints.web.address=:80"
@@ -59,89 +59,13 @@ services:
       - dev_network
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.traefik-api.rule=(Host(`${DOMAIN}`) || Host(`${TAILSCALE_DOMAIN}`)) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
+      - "traefik.http.routers.traefik-api.rule=(Host(`${DOMAIN}`) || Host(`${TAILSCALE_DOMAIN}`)) && PathPrefix(`/dashboard`)"
       - "traefik.http.routers.traefik-api.entrypoints=websecure"
       - "traefik.http.routers.traefik-api.tls=true"
       - "traefik.http.routers.traefik-api.service=api@internal"
       - "traefik.http.routers.traefik-api.middlewares=auth"
       - "traefik.http.routers.traefik-api.priority=10"
       - "traefik.http.middlewares.auth.basicauth.users=${BASIC_AUTH_USERS}"
-
-  portainer:
-    image: portainer/portainer-ce:latest
-    container_name: portainer
-    restart: always
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - portainer_data:/data
-    networks:
-      - dev_network
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.portainer.rule=(Host(`${DOMAIN}`) || Host(`${TAILSCALE_DOMAIN}`)) && PathPrefix(`/portainer`)"
-      - "traefik.http.routers.portainer.entrypoints=websecure"
-      - "traefik.http.routers.portainer.tls=true"
-      - "traefik.http.services.portainer.loadbalancer.server.port=9000"
-      - "traefik.http.routers.portainer.middlewares=auth,portainer-strip"
-      - "traefik.http.routers.portainer.priority=10"
-      - "traefik.http.middlewares.portainer-strip.stripprefix.prefixes=/portainer"
-
-  code-server:
-    image: lscr.io/linuxserver/code-server:latest
-    container_name: code-server
-    environment:
-      - PUID=${PUID:-1000}
-      - PGID=${PGID:-1000}
-      - TZ=${TZ:-America/New_York}
-      - PASSWORD=
-      - SUDO_PASSWORD=${CODE_SERVER_SUDO_PASSWORD}
-      - PROXY_DOMAIN=${DOMAIN}/code
-      - DEFAULT_WORKSPACE=/config/workspace
-    volumes:
-      - ${CODE_SERVER_CONFIG_PATH:-./code-server/config}:/config
-      - ${CODE_SERVER_WORKSPACE_PATH:-~/repos}:/config/workspace
-    restart: unless-stopped
-    networks:
-      - dev_network
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.code.rule=(Host(`${DOMAIN}`) || Host(`${TAILSCALE_DOMAIN}`)) && PathPrefix(`/code`)"
-      - "traefik.http.routers.code.entrypoints=websecure"
-      - "traefik.http.routers.code.tls=true"
-      - "traefik.http.services.code.loadbalancer.server.port=8443"
-      - "traefik.http.routers.code.middlewares=auth,code-headers,code-strip"
-      - "traefik.http.routers.code.priority=10"
-      - "traefik.http.middlewares.code-strip.stripprefix.prefixes=/code"
-      - "traefik.http.middlewares.code-headers.headers.customrequestheaders.X-Forwarded-Prefix=/code"
-
-  jupyter:
-    image: jupyter/datascience-notebook:${JUPYTER_VERSION:-latest}
-    container_name: jupyter
-    restart: always
-    user: root
-    command: start-notebook.sh --ServerApp.base_url=/jupyter --ServerApp.token='' --ServerApp.password=''
-    environment:
-      - JUPYTER_ENABLE_LAB=yes
-      - GRANT_SUDO=yes
-      - CHOWN_HOME=yes
-      - CHOWN_HOME_OPTS=-R
-      - NB_USER=${JUPYTER_USER:-jovyan}
-      - NB_UID=${PUID:-1000}
-      - NB_GID=${PGID:-1000}
-      - RESTARTABLE=yes
-    volumes:
-      - ${JUPYTER_WORKSPACE_PATH:-./jupyter/workspace}:/home/jovyan/work
-      - ${JUPYTER_CONFIG_PATH:-./jupyter/config}:/home/jovyan/.jupyter
-    networks:
-      - dev_network
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.jupyter.rule=(Host(`${DOMAIN}`) || Host(`${TAILSCALE_DOMAIN}`)) && PathPrefix(`/jupyter`)"
-      - "traefik.http.routers.jupyter.entrypoints=websecure"
-      - "traefik.http.routers.jupyter.tls=true"
-      - "traefik.http.services.jupyter.loadbalancer.server.port=8888"
-      - "traefik.http.routers.jupyter.middlewares=auth"
-      - "traefik.http.routers.jupyter.priority=10"
 
   postgres:
     image: postgres:${POSTGRES_VERSION:-16-alpine}
@@ -289,6 +213,9 @@ services:
     restart: always
     volumes:
       - ${HOMEPAGE_PATH:-./homepage}:/usr/share/nginx/html:ro
+      - ${HOMEPAGE_PATH:-./homepage}/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - internal-api
     networks:
       - dev_network
     labels:
@@ -297,6 +224,7 @@ services:
       - "traefik.http.routers.homepage.entrypoints=websecure"
       - "traefik.http.routers.homepage.tls=true"
       - "traefik.http.services.homepage.loadbalancer.server.port=80"
+      - "traefik.http.services.homepage.loadbalancer.responseforwarding.flushinterval=1ms"
       - "traefik.http.routers.homepage.middlewares=auth"
       - "traefik.http.routers.homepage.priority=1"
 
@@ -312,6 +240,7 @@ services:
     environment:
       - CORS_ORIGINS=${API_CORS_ORIGINS:-http://localhost:3000,https://elimelt.com}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - AUGMENT_API_TOKEN=${AUGMENT_API_TOKEN}
       - AGENTS=${AGENTS:-5}
       - AGENT_MIN_SLEEP_SEC=${AGENT_MIN_SLEEP_SEC:-30}
       - AGENT_MAX_SLEEP_SEC=${AGENT_MAX_SLEEP_SEC:-120}
@@ -338,8 +267,32 @@ services:
     networks:
       - dev_network
 
+  internal-api:
+    build:
+      context: ${API_PATH:-./api}
+      dockerfile: Dockerfile.internal
+    container_name: internal-api
+    restart: always
+    environment:
+      - AUGMENT_API_TOKEN=${AUGMENT_API_TOKEN}
+      - AUGMENT_SESSION_AUTH=${AUGMENT_API_TOKEN}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_MAX_CONNECTIONS=${REDIS_MAX_CONNECTIONS:-50}
+      - ENABLE_CHAT_DB=1
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-devuser}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-devdb}
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - dev_network
+
 volumes:
-  portainer_data:
   postgres_data:
   redis_data:
   grafana_data:

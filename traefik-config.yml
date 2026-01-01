@@ -9,6 +9,50 @@ tls:
       defaultCertificate:
         certFile: /certs/blink.tail8ab50a.ts.net.crt
         keyFile: /certs/blink.tail8ab50a.ts.net.key
+
+http:
+  routers:
+    terminal:
+      rule: "PathPrefix(`/terminal`)"
+      entryPoints:
+        - websecure
+      service: terminal
+      tls: {}
+      middlewares:
+        - auth@docker
+        - terminal-strip
+      priority: 10
+    terminal-stream:
+      rule: "Path(`/stream`)"
+      entryPoints:
+        - websecure
+      service: terminal
+      tls: {}
+      middlewares:
+        - auth@docker
+      priority: 15
+    terminal-input:
+      rule: "Path(`/input`)"
+      entryPoints:
+        - websecure
+      service: terminal
+      tls: {}
+      middlewares:
+        - auth@docker
+      priority: 15
+
+  services:
+    terminal:
+      loadBalancer:
+        servers:
+          - url: "http://172.18.0.1:8000"
+
+  middlewares:
+    terminal-strip:
+      stripPrefix:
+        prefixes:
+          - "/terminal"
+
 metrics:
   prometheus:
     buckets:

@@ -18,3 +18,13 @@ scrape_configs:
   - job_name: 'traefik'
     static_configs:
       - targets: ['traefik:8080']
+
+  - job_name: 'public-api'
+    static_configs:
+      - targets: ['public-api:80']
+    metrics_path: '/metrics'
+
+  - job_name: 'internal-api'
+    static_configs:
+      - targets: ['internal-api:80']
+    metrics_path: '/metrics'

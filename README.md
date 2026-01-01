@@ -8,28 +8,24 @@ Self-hosted development environment with Traefik reverse proxy, Tailscale VPN, a
 - **Public API Gateway** - Expose APIs to the internet (isolated from VPN)
 - Automated setup and configuration
 - Full observability stack (Prometheus + Grafana)
-- Browser-based development tools (VS Code, JupyterLab)
 - PostgreSQL and Redis databases
-- Docker management via Portainer
 - Rate limiting and security headers for public APIs
 
 ## Services
 
 | Service | Description | URL Path | Auth |
 |---------|-------------|----------|------|
-| Public API | Public API endpoints | `https://your-machine.tail12345.ts.net:10000/` | No |
+| Homepage | Service dashboard | `/` | Yes |
+| Public API | Public API endpoints | `localhost:10000` | No |
+| Internal API | Internal API endpoints | Internal only | - |
 | Traefik | Reverse proxy with HTTPS | `/dashboard/` | Yes |
 | Tailscale | VPN for secure remote access | - | - |
-| Portainer | Docker management UI | `/portainer/` | Yes |
-| Code Server | VS Code in browser | `/code/` | Yes |
-| JupyterLab | Interactive notebooks | `/jupyter/` | Yes |
 | Grafana | Metrics and logs visualization | `/grafana/` | Yes |
 | Prometheus | Metrics collection | `/prometheus/` | Yes |
 | Loki | Log aggregation | - | - |
 | Promtail | Log collector | - | - |
 | PostgreSQL | Relational database | `postgres:5432` | - |
 | Redis | Cache and message broker | `redis:6379` | - |
-| Homepage | Service dashboard | `/` | Yes |
 
 ## Quick Start
 
@@ -95,79 +91,64 @@ DevStack uses single sign-on via Traefik's basic auth. All services are configur
 
 **Services with disabled authentication:**
 - Grafana: Anonymous access with Admin role
-- Portainer: No admin password required
-- Code Server: Password authentication disabled
-- JupyterLab: Token authentication disabled
 
 ## Monitoring & Logging
 
 ### Metrics (Prometheus + Grafana)
 
-Import Traefik dashboard in Grafana:
-- Dashboard ID: 11462 or 4475
-- Data source: Prometheus
+Prometheus scrapes metrics from:
+- **public-api** and **internal-api** - HTTP request metrics, Python runtime stats
+- **traefik** - Reverse proxy requests, latency, connections
+- **cadvisor** - Container CPU, memory, network
+- **node-exporter** - Host system metrics
 
-Metrics collected:
-- Container metrics (CPU, memory, network)
-- System metrics (node-exporter)
-- Traefik metrics (requests, latency, status codes)
+#### Prometheus Metrics Endpoints
 
-Prometheus queries:
-```promql
-# Request rate by service
-rate(traefik_service_requests_total[5m])
-
-# 95th percentile latency
-histogram_quantile(0.95, rate(traefik_service_request_duration_seconds_bucket[5m]))
-
-# HTTP status codes
-sum by (code) (rate(traefik_entrypoint_requests_total[5m]))
+Both API services expose Prometheus metrics internally:
+```bash
+# From within Docker network only (not exposed via Traefik)
+http://public-api:80/metrics
+http://internal-api:80/metrics
 ```
+
+Example PromQL queries:
+```promql
+# API request rate
+sum(rate(http_requests_total{job=~"public-api|internal-api"}[5m]))
+
+# API latency P99
+histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{job="public-api"}[5m])) by (le))
+
+# Traefik request rate
+rate(traefik_service_requests_total[5m])
+```
+
+### Grafana Dashboards
+
+Pre-configured dashboards in `grafana/dashboards/`:
+
+| Dashboard | Description |
+|-----------|-------------|
+| **API Performance** | Request rates, latency percentiles (P50/P90/P95/P99), error rates by API and handler |
+| **System Overview** | Host CPU/memory/disk/network, container resource usage, top containers |
+| **Application Health** | Service status, process metrics, Traefik connections, Python GC, Prometheus health |
+
+All dashboards are version-controlled and automatically provisioned on startup.
 
 ### Logs (Loki + Grafana)
 
-Loki aggregates logs from all services and Traefik access logs. Access via Grafana Explore or create dashboards.
+Loki aggregates logs from all services. Access via Grafana Explore:
 
-LogQL queries:
 ```logql
-# All Traefik access logs
-{job="traefik"}
-
-# Filter by service
-{job="traefik", router_name=~"grafana.*"}
-
-# Filter by status code
-{job="traefik"} | json | status >= 400
-
-# Filter by IP
-{job="traefik"} | json | client_addr =~ "100.64.*"
-
-# Filter by user
-{job="traefik"} | json | client_username = "admin"
-
 # All container logs
 {job="docker"}
 
 # Specific container
 {job="docker", container="postgres"}
 
-# Search in logs
+# Search for errors
 {job="docker"} |= "error"
 ```
-
-Access logs in Grafana:
-1. **Pre-built Dashboard**: Go to Grafana → Dashboards → "DevStack Logs"
-2. **Explore**: Go to Grafana → Explore → Select "Loki" data source
-3. Use LogQL queries above to filter and search logs
-
-Pre-configured dashboards:
-- **DevStack Logs**: Real-time access logs, request rates, error tracking
-- **DevStack Overview**: System metrics and service health
-- **Traefik**: Official Traefik dashboard with detailed proxy metrics
-- **Redis**: Redis performance and usage metrics
-- **Cost Usage**: Resource usage tracking
-
-All dashboards are version-controlled in `grafana/dashboards/` and automatically provisioned on startup.
 
 ## Management
 
@@ -224,10 +205,9 @@ docker exec -it redis redis-cli -a your-password
 ## Data Persistence
 
 Docker volumes:
-- `portainer_data` - Portainer configuration
 - `postgres_data` - PostgreSQL databases
 - `redis_data` - Redis data
-- `grafana_data` - Grafana dashboards
+- `grafana_data` - Grafana dashboards and settings
 - `prometheus_data` - Metrics history
 - `loki_data` - Log storage
 
@@ -285,7 +265,7 @@ openssl s_client -connect your-domain:443 -servername your-domain
 ```
 
 ### Homepage multiplexor
-The homepage provides a multiplexor interface for managing multiple services. Services that support iframe embedding (Code Server, JupyterLab, Prometheus, Traefik) can be added to the grid. Services with CSP restrictions (Grafana, Portainer) are marked with ↗ and open in new tabs when clicked.
+The homepage provides a multiplexor interface for managing multiple services. Services that support iframe embedding (Prometheus, Traefik) can be added to the grid. Services with CSP restrictions (Grafana) open in new tabs.
 
 ### Public API
 
@@ -339,10 +319,4 @@ labels:
   - "traefik.http.routers.myservice.tls=true"
 ```
 
-### Workspace Paths
 
-Edit `.env`:
-```bash
-CODE_SERVER_WORKSPACE_PATH=~/my-projects
-JUPYTER_WORKSPACE_PATH=./my-notebooks
-```

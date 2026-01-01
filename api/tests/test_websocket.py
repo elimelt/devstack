@@ -1,8 +1,13 @@
 import asyncio
 import json
 import time
+from unittest.mock import AsyncMock
+
+import pytest
 
 from api import main
+from api.controllers import ws_visitors
+from api.controllers.ws_visitors import _handle_analytics_batch
 
 
 def test_websocket_join_broadcast_and_leave(client, monkeypatch):
@@ -51,3 +56,131 @@ def test_websocket_join_broadcast_and_leave(client, monkeypatch):
             break
         time.sleep(0.05)
     assert visitors_resp.json()["active_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_handle_analytics_batch_with_clicks(monkeypatch):
+    """Test _handle_analytics_batch processes click events correctly."""
+    captured_calls = []
+
+    async def mock_insert(events, client_ip):
+        captured_calls.append({"events": events, "client_ip": client_ip})
+        return len(events)
+
+    monkeypatch.setattr(ws_visitors.db, "insert_click_events", mock_insert)
+
+    data = {
+        "type": "analytics.batch",
+        "payload": {
+            "topic": "clicks",
+            "events": [
+                {"ts": 1704067200000, "seq": 1, "element": {"tag": "button"}},
+                {"ts": 1704067201000, "seq": 2, "element": {"tag": "a"}},
+            ],
+        },
+    }
+
+    await _handle_analytics_batch(data, "192.168.1.50")
+
+    assert len(captured_calls) == 1
+    assert captured_calls[0]["client_ip"] == "192.168.1.50"
+    assert len(captured_calls[0]["events"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_handle_analytics_batch_unknown_topic(monkeypatch):
+    """Test _handle_analytics_batch ignores unknown topics."""
+    mock_insert = AsyncMock(return_value=0)
+    monkeypatch.setattr(ws_visitors.db, "insert_click_events", mock_insert)
+
+    data = {
+        "type": "analytics.batch",
+        "payload": {
+            "topic": "unknown_topic",
+            "events": [{"ts": 1704067200000}],
+        },
+    }
+
+    await _handle_analytics_batch(data, "192.168.1.51")
+
+    # insert_click_events should NOT be called for unknown topic
+    mock_insert.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_handle_analytics_batch_empty_events(monkeypatch):
+    """Test _handle_analytics_batch ignores empty events array."""
+    mock_insert = AsyncMock(return_value=0)
+    monkeypatch.setattr(ws_visitors.db, "insert_click_events", mock_insert)
+
+    data = {
+        "type": "analytics.batch",
+        "payload": {
+            "topic": "clicks",
+            "events": [],
+        },
+    }
+
+    await _handle_analytics_batch(data, "192.168.1.52")
+
+    # insert_click_events should NOT be called for empty events
+    mock_insert.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_handle_analytics_batch_database_error(monkeypatch):
+    """Test _handle_analytics_batch handles database errors gracefully."""
+    mock_insert = AsyncMock(side_effect=Exception("Database connection failed"))
+    monkeypatch.setattr(ws_visitors.db, "insert_click_events", mock_insert)
+
+    data = {
+        "type": "analytics.batch",
+        "payload": {
+            "topic": "clicks",
+            "events": [{"ts": 1704067200000, "seq": 1}],
+        },
+    }
+
+    # Should not raise an exception
+    await _handle_analytics_batch(data, "192.168.1.53")
+
+    # The mock was called (and raised an exception, which was caught)
+    mock_insert.assert_called_once()
+
+
+def test_websocket_non_json_message_ignored(client, monkeypatch):
+    """Test that non-JSON messages (other than 'pong') are safely ignored."""
+    headers = {"x-forwarded-for": "192.168.1.52"}
+
+    class DummyPubSub:
+        async def subscribe(self, _channel: str):
+            return True
+
+        async def unsubscribe(self, _channel: str):
+            return True
+
+        async def close(self):
+            return True
+
+        async def aclose(self):
+            return True
+
+        async def listen(self):
+            while True:
+                await asyncio.sleep(10)
+                yield {"type": "message", "data": "{}"}
+
+    monkeypatch.setattr(main.redis_client, "pubsub", lambda: DummyPubSub())
+
+    mock_insert = AsyncMock(return_value=0)
+    monkeypatch.setattr(ws_visitors.db, "insert_click_events", mock_insert)
+
+    with client.websocket_connect("/ws/visitors", headers=headers) as ws:
+        # Send various non-JSON messages
+        ws.send_text("hello world")
+        ws.send_text("not valid json {{{")
+        ws.send_text("pong")  # This is the expected keepalive response
+        time.sleep(0.1)
+
+    # Nothing should crash, and insert should not be called
+    mock_insert.assert_not_called()

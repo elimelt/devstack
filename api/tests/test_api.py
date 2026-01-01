@@ -1,4 +1,4 @@
-import api.controllers.system as system_controller
+import api.controllers.system as system_module
 
 
 def test_health(client):
@@ -51,7 +51,7 @@ def test_system_with_mocked_subprocess(client, monkeypatch):
             self.stdout = stdout
             self.stderr = ""
 
-    def fake_run(args, capture_output, text, timeout):
+    def fake_run(args, check=False, capture_output=False, text=False, timeout=None):
         if args[:2] == ["docker", "ps"]:
             return FakeCompleted(0, "api|Up 5 minutes|myimage:1.0\nredis|Up 10 minutes|redis:7")
         if args[:2] == ["docker", "stats"]:
@@ -61,8 +61,7 @@ def test_system_with_mocked_subprocess(client, monkeypatch):
             )
         return FakeCompleted(1, "")
 
-    monkeypatch.setattr(system_controller, "run", fake_run, raising=False)
-    monkeypatch.setattr(system_controller.subprocess, "run", fake_run, raising=False)
+    monkeypatch.setattr(system_module.subprocess, "run", fake_run)
 
     res = client.get("/system")
     assert res.status_code == 200
