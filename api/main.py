@@ -1,43 +1,43 @@
-import os
 import logging
-import redis.asyncio as redis
+import os
+
 import geoip2.database
+import redis.asyncio as redis
 
 logging.basicConfig(
     level=logging.INFO,
     format="[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s",
 )
-from typing import Optional
+import asyncio
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.bus import EventBus
-from api import state
-from contextlib import asynccontextmanager
 from redis.asyncio import BlockingConnectionPool as RedisConnectionPool
-from api.controllers.health import router as health_router
-from api.controllers.example import router as example_router
+
+from api import db, state
+from api.agents.gemini_agent import start_agents
+from api.bus import EventBus
 from api.controllers.cache import router as cache_router
-from api.controllers.visitors import router as visitors_router
-from api.controllers.system import router as system_router
-from api.controllers.ws_visitors import router as ws_visitors_router
-from api.controllers.ws_chat import router as ws_chat_router
+from api.controllers.chat_admin import router as chat_admin_router
 from api.controllers.chat_history import router as chat_history_router
 from api.controllers.events_history import router as events_history_router
-from api import db
-from api.agents.gemini_agent import start_agents
-import asyncio
+from api.controllers.example import router as example_router
+from api.controllers.health import router as health_router
+from api.controllers.system import router as system_router
+from api.controllers.visitors import router as visitors_router
+from api.controllers.when2meet import router as when2meet_router
+from api.controllers.ws_chat import router as ws_chat_router
+from api.controllers.ws_visitors import router as ws_visitors_router
 from api.middleware import HTTPLogMiddleware
 from api.redis_debug import wrap_redis_client
-from api.controllers.chat_admin import router as chat_admin_router
-from api.controllers.when2meet import router as when2meet_router
 
 app = FastAPI(title="DevStack Public API", version="1.0.0")
 
 cors_origins_raw = os.getenv("CORS_ORIGINS", "http://localhost:3000")
 cors_origins = [o.strip() for o in cors_origins_raw.split(",") if o.strip()]
 cors_regex_env = os.getenv("CORS_ORIGINS_REGEX", "").strip()
-# Allow elimelt.com and any subdomain (http and https)
 elimelt_subdomain_regex = r"https?://([a-zA-Z0-9-]+\.)?elimelt\.com"
 cors_regex = cors_regex_env if cors_regex_env else elimelt_subdomain_regex
 allow_credentials = cors_origins != ["*"] and cors_regex is None
@@ -60,13 +60,14 @@ if os.getenv("WS_DEBUG", "0") == "1":
     logging.getLogger("api.ws.chat").setLevel(logging.INFO)
 
 redis_client = None
-event_bus: Optional[EventBus] = None
+event_bus: EventBus | None = None
 geoip_reader = None
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     global redis_client, geoip_reader, event_bus
-    stop_event: Optional[asyncio.Event] = None
+    stop_event: asyncio.Event | None = None
     agent_tasks: list[asyncio.Task] = []
     redis_host = os.getenv("REDIS_HOST", "redis")
     redis_port = int(os.getenv("REDIS_PORT", "6379"))
@@ -117,7 +118,9 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         if agent_tasks and stop_event:
             stop_event.set()
             try:
-                await asyncio.wait_for(asyncio.gather(*agent_tasks, return_exceptions=True), timeout=5)
+                await asyncio.wait_for(
+                    asyncio.gather(*agent_tasks, return_exceptions=True), timeout=5
+                )
             except Exception:
                 for t in agent_tasks:
                     t.cancel()
@@ -139,6 +142,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         state.redis_client = None
         state.event_bus = None
         state.geoip_reader = None
+
 
 app.router.lifespan_context = lifespan
 

@@ -1,8 +1,8 @@
+import asyncio
 import json
 import time
-import asyncio
 
-import api.main as main
+from api import main
 
 
 def test_websocket_join_broadcast_and_leave(client, monkeypatch):
@@ -29,12 +29,9 @@ def test_websocket_join_broadcast_and_leave(client, monkeypatch):
             await asyncio.sleep(0)  # allow cancellation
 
     payload = {"type": "broadcast", "payload": {"hello": "world"}}
-    monkeypatch.setattr(
-        main.redis_client, "pubsub", lambda: DummyPubSub(json.dumps(payload))
-    )
+    monkeypatch.setattr(main.redis_client, "pubsub", lambda: DummyPubSub(json.dumps(payload)))
 
     with client.websocket_connect("/ws/visitors", headers=headers) as ws:
-        # After connect, visitor should appear in /visitors
         visitors_resp = client.get("/visitors")
         assert visitors_resp.status_code == 200
         visitors = visitors_resp.json()
@@ -42,13 +39,11 @@ def test_websocket_join_broadcast_and_leave(client, monkeypatch):
         ips = [v["ip"] for v in visitors["active_visitors"]]
         assert "203.0.113.10" in ips
 
-        # Websocket should receive broadcast forwarded by DummyPubSub.listen()
         msg = ws.receive_text()
         received = json.loads(msg)
         assert received["type"] == "broadcast"
         assert received["payload"]["hello"] == "world"
 
-    # After disconnect, visitor key should be cleaned up shortly
     for _ in range(10):
         visitors_resp = client.get("/visitors")
         assert visitors_resp.status_code == 200
@@ -56,5 +51,3 @@ def test_websocket_join_broadcast_and_leave(client, monkeypatch):
             break
         time.sleep(0.05)
     assert visitors_resp.json()["active_count"] == 0
-
-

@@ -1,5 +1,6 @@
 import logging
 import time
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
@@ -19,13 +20,17 @@ class HTTPLogMiddleware(BaseHTTPMiddleware):
         try:
             response: Response = await call_next(request)
             dur_ms = int((time.time() - start) * 1000)
-            self._logger.debug("http.request end method=%s path=%s status=%s dur_ms=%s",
-                               method, path, response.status_code, dur_ms)
+            self._logger.debug(
+                "http.request end method=%s path=%s status=%s dur_ms=%s",
+                method,
+                path,
+                response.status_code,
+                dur_ms,
+            )
             return response
         except Exception as e:
             dur_ms = int((time.time() - start) * 1000)
-            self._logger.warning("http.request error method=%s path=%s dur_ms=%s err=%r",
-                                 method, path, dur_ms, e)
+            self._logger.warning(
+                "http.request error method=%s path=%s dur_ms=%s err=%r", method, path, dur_ms, e
+            )
             raise
-
-

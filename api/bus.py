@@ -1,7 +1,9 @@
 import json
 from typing import Final
+
 import redis.asyncio as redis
-from api.events import VisitorEvent, ChatMessageEvent
+
+from api.events import ChatMessageEvent, VisitorEvent
 
 CHANNEL_VISITOR_UPDATES: Final[str] = "visitor_updates"
 CHANNEL_CHAT_PREFIX: Final[str] = "chat:"

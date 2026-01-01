@@ -1,11 +1,13 @@
 import asyncio
+import json
 import logging
 import os
-import json
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from api.producers.visitor_producer import join_visitor, heartbeat as hb, leave_visitor
 from api import state
+from api.producers.visitor_producer import heartbeat as hb
+from api.producers.visitor_producer import join_visitor, leave_visitor
 
 router = APIRouter()
 
@@ -36,17 +38,30 @@ async def websocket_visitors(websocket: WebSocket) -> None:
         current = state.active_ws_visitors_by_ip.get(client_ip, 0) + 1
         state.active_ws_visitors_by_ip[client_ip] = current
         if current > max_per_ip:
-            logger.info("ws_visitors.reject ip=%s reason=per_ip_limit current=%s limit=%s origin=%s ua=%s",
-                        client_ip, current, max_per_ip, origin, user_agent)
+            logger.info(
+                "ws_visitors.reject ip=%s reason=per_ip_limit current=%s limit=%s origin=%s ua=%s",
+                client_ip,
+                current,
+                max_per_ip,
+                origin,
+                user_agent,
+            )
             await websocket.close(code=1008)
             state.active_ws_visitors_by_ip[client_ip] = current - 1
             return
-    logger.info("ws_visitors.accept ip=%s origin=%s ua=%s active_per_ip=%s",
-                client_ip, origin, user_agent, state.active_ws_visitors_by_ip.get(client_ip))
+    logger.info(
+        "ws_visitors.accept ip=%s origin=%s ua=%s active_per_ip=%s",
+        client_ip,
+        origin,
+        user_agent,
+        state.active_ws_visitors_by_ip.get(client_ip),
+    )
 
     visitor_id = f"visitor:{client_ip}:{id(websocket)}"
 
-    visitor_data = await join_visitor(state.redis_client, state.event_bus, state.geoip_reader, client_ip, visitor_id)
+    visitor_data = await join_visitor(
+        state.redis_client, state.event_bus, state.geoip_reader, client_ip, visitor_id
+    )
 
     pubsub = state.redis_client.pubsub()
     await pubsub.subscribe("visitor_updates")
@@ -89,9 +104,9 @@ async def websocket_visitors(websocket: WebSocket) -> None:
         await leave_visitor(state.redis_client, state.event_bus, client_ip, visitor_id)
         async with state.ws_visitors_lock:
             if client_ip in state.active_ws_visitors_by_ip:
-                state.active_ws_visitors_by_ip[client_ip] = max(0, state.active_ws_visitors_by_ip[client_ip] - 1)
+                state.active_ws_visitors_by_ip[client_ip] = max(
+                    0, state.active_ws_visitors_by_ip[client_ip] - 1
+                )
                 if state.active_ws_visitors_by_ip[client_ip] == 0:
                     del state.active_ws_visitors_by_ip[client_ip]
         logger.info("ws_visitors.close ip=%s", client_ip)
-
-

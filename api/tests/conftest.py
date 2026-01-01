@@ -1,14 +1,15 @@
 import os
 import sys
+
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
+import fakeredis.aioredis as fakeredis
 import pytest
 from fastapi.testclient import TestClient
-import fakeredis.aioredis as fakeredis
 
-import api.main as main
+from api import main
 
 
 class _AwaitableRedis:

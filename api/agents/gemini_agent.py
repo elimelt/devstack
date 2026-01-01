@@ -1,23 +1,28 @@
-import os
 import asyncio
-import random
-import logging
-import json
-import re
 import hashlib
-from urllib.parse import urlparse
+import json
+import logging
+import os
+import random
+import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import List, Tuple, Dict, Set, Optional, Callable, Awaitable, Any
+from datetime import UTC, datetime
+from typing import Any, ClassVar
+from urllib.parse import urlparse
+
+import requests
 from google import genai
 from google.genai import types
 from google.genai.errors import APIError
+
 from api import db, state
 from api.producers.chat_producer import build_chat_message, publish_chat_message
-import requests
+
 
 def _env(name: str, default: str = "") -> str:
     return os.getenv(name, default)
+
 
 _logger = logging.getLogger("api.agents.gemini")
 if not _logger.handlers:
@@ -31,7 +36,6 @@ _logger.propagate = False
 
 _VOTE_PREFIX = "[vote]"
 
-# --- Token Counting ---
 
 def _estimate_tokens(text: str) -> int:
     """Estimate token count for a string. Rough approximation: ~4 chars per token."""
@@ -39,8 +43,6 @@ def _estimate_tokens(text: str) -> int:
         return 0
     return max(1, len(text) // 4)
 
-
-# --- Global Daily Rate Limiter ---
 
 _DAILY_LIMIT_KEY = "agent:daily_request_count"
 _DAILY_LIMIT_DATE_KEY = "agent:daily_request_date"
@@ -51,10 +53,9 @@ async def _get_daily_request_count() -> int:
     if state.redis_client is None:
         return 0
     try:
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
         stored_date = await state.redis_client.get(_DAILY_LIMIT_DATE_KEY)
         if stored_date != today:
-            # New day, reset counter
             await state.redis_client.set(_DAILY_LIMIT_DATE_KEY, today)
             await state.redis_client.set(_DAILY_LIMIT_KEY, "0")
             return 0
@@ -69,7 +70,7 @@ async def _increment_daily_request_count() -> int:
     if state.redis_client is None:
         return 0
     try:
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
         stored_date = await state.redis_client.get(_DAILY_LIMIT_DATE_KEY)
         if stored_date != today:
             await state.redis_client.set(_DAILY_LIMIT_DATE_KEY, today)
@@ -91,41 +92,42 @@ async def _can_make_request() -> bool:
     return can_proceed
 
 
-# --- Data Structures ---
-
 @dataclass
 class AgentConfig:
     sender: str
-    channels: List[str]
+    channels: list[str]
     min_sleep: int
     max_sleep: int
     max_replies: int
     history_token_limit: int
     model: str
-    persona: Optional[str] = None
+    persona: str | None = None
 
-ToolFunction = Callable[[Dict[str, Any]], Awaitable[str]]
-TOOL_MAP: Dict[str, ToolFunction] = {}
 
-def _participants_from_history(history: List[Tuple[str, str, datetime]]) -> List[Tuple[str, int]]:
-    counts: Dict[str, int] = {}
+ToolFunction = Callable[[dict[str, Any]], Awaitable[str]]
+TOOL_MAP: dict[str, ToolFunction] = {}
+
+
+def _participants_from_history(history: list[tuple[str, str, datetime]]) -> list[tuple[str, int]]:
+    counts: dict[str, int] = {}
     for sender, _text, _ts in history:
         counts[sender] = counts.get(sender, 0) + 1
     return sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
 
-async def _fetch_recent_messages_by_tokens(channel: str, token_limit: int, limit: int = 500) -> List[Tuple[str, str, datetime]]:
+
+async def _fetch_recent_messages_by_tokens(
+    channel: str, token_limit: int, limit: int = 500
+) -> list[tuple[str, str, datetime]]:
     """Fetch recent messages up to a token limit instead of time-based."""
     rows = await db.fetch_chat_history(channel=channel, before_iso=None, limit=limit)
-    out: List[Tuple[str, str, datetime]] = []
+    out: list[tuple[str, str, datetime]] = []
     total_tokens = 0
 
-    # Process in reverse chronological order (most recent first)
     for m in reversed(rows):
         ts = datetime.fromisoformat(m["timestamp"].replace("Z", "+00:00"))
         text = m.get("text") or ""
         sender = m.get("sender") or ""
 
-        # Estimate tokens for this message (include sender and timestamp overhead ~30 tokens)
         msg_tokens = _estimate_tokens(text) + _estimate_tokens(sender) + 30
 
         if total_tokens + msg_tokens > token_limit:
@@ -134,13 +136,14 @@ async def _fetch_recent_messages_by_tokens(channel: str, token_limit: int, limit
         out.append((sender, text, ts))
         total_tokens += msg_tokens
 
-    # Reverse to get chronological order
     return list(reversed(out))
 
-def _parse_channels(value: str) -> List[str]:
+
+def _parse_channels(value: str) -> list[str]:
     return [c.strip() for c in value.split(",") if c.strip()]
 
-def _load_agent_configs() -> List[AgentConfig]:
+
+def _load_agent_configs() -> list[AgentConfig]:
     api_key = _env("GEMINI_API_KEY", "")
     if not api_key:
         _logger.info("GEMINI_API_KEY not set; agent disabled")
@@ -149,16 +152,13 @@ def _load_agent_configs() -> List[AgentConfig]:
     num = int(_env("AGENTS", "3"))
     num = max(1, min(num, 10))
     common_channels = _parse_channels(_env("AGENT_CHANNELS", "general"))
-    # Increased default sleep times to reduce request frequency (20 requests/day limit)
-    min_sleep = int(_env("AGENT_MIN_SLEEP_SEC", "3600"))  # 1 hour default
-    max_sleep = int(_env("AGENT_MAX_SLEEP_SEC", "7200"))  # 2 hours default
-    # Reduced max replies to 1 to conserve requests
+    min_sleep = int(_env("AGENT_MIN_SLEEP_SEC", "3600"))
+    max_sleep = int(_env("AGENT_MAX_SLEEP_SEC", "7200"))
     max_replies = int(_env("AGENT_MAX_REPLIES", "1"))
-    # Token-based history limit (~10,000 tokens)
     history_token_limit = int(_env("AGENT_HISTORY_TOKEN_LIMIT", "10000"))
     model = _env("AGENT_MODEL", "gemini-2.5-flash")
 
-    cfgs: List[AgentConfig] = []
+    cfgs: list[AgentConfig] = []
     for i in range(1, num + 1):
         sender = _env(f"AGENT_{i}_SENDER", f"agent:gemini-{i}")
         channels = _parse_channels(_env(f"AGENT_{i}_CHANNELS", ",".join(common_channels)))
@@ -177,27 +177,34 @@ def _load_agent_configs() -> List[AgentConfig]:
     for cfg in cfgs:
         _logger.info(
             "Configured agent sender=%s channels=%s model=%s sleep=[%ss..%ss] max_replies=%s history_tokens=%d persona=%s",
-            cfg.sender, cfg.channels, cfg.model, cfg.min_sleep, cfg.max_sleep, cfg.max_replies, cfg.history_token_limit,
+            cfg.sender,
+            cfg.channels,
+            cfg.model,
+            cfg.min_sleep,
+            cfg.max_sleep,
+            cfg.max_replies,
+            cfg.history_token_limit,
             _safe_trunc(cfg.persona, 120),
         )
     return cfgs
+
 
 async def _run_single_agent_loop(cfg: AgentConfig, stop_event: asyncio.Event) -> None:
     min_sleep = max(5, cfg.min_sleep)
     max_sleep = max(min_sleep, cfg.max_sleep)
     max_replies = max(0, min(cfg.max_replies, 5))
 
-
-    wake_prob = float(_env("AGENT_WAKE_PROB", "0.1"))  # Reduced from 0.2
-    wake_cooldown_sec = int(_env("AGENT_WAKE_COOLDOWN_SEC", "300"))  # Increased from 45
+    wake_prob = float(_env("AGENT_WAKE_PROB", "0.1"))
+    wake_cooldown_sec = int(_env("AGENT_WAKE_COOLDOWN_SEC", "300"))
     wake_event = asyncio.Event()
     last_wake_at: datetime | None = None
-
 
     _register_wake_handler(cfg, wake_event, wake_prob, wake_cooldown_sec, lambda: last_wake_at)
 
     while not stop_event.is_set():
-        woke = await _wait_for_wake_or_timeout(stop_event, wake_event, random.randint(min_sleep, max_sleep))
+        woke = await _wait_for_wake_or_timeout(
+            stop_event, wake_event, random.randint(min_sleep, max_sleep)
+        )
         if woke is None:
             break
 
@@ -205,17 +212,17 @@ async def _run_single_agent_loop(cfg: AgentConfig, stop_event: asyncio.Event) ->
             _logger.debug("[%s] Skipping session; event_bus not ready", cfg.sender)
             continue
 
-        # Check global daily rate limit before proceeding
         if not await _can_make_request():
             _logger.info("[%s] Skipping session; daily request limit reached", cfg.sender)
             continue
 
         channel = random.choice(cfg.channels)
-        _logger.info("[%s] Session channel=%s token_limit=%d", cfg.sender, channel, cfg.history_token_limit)
+        _logger.info(
+            "[%s] Session channel=%s token_limit=%d", cfg.sender, channel, cfg.history_token_limit
+        )
 
-        last_wake_at = datetime.now(timezone.utc)
+        last_wake_at = datetime.now(UTC)
 
-        # Only send 1 reply per session to conserve requests
         n_replies = min(max_replies, 1)
         if n_replies <= 0:
             continue
@@ -225,7 +232,7 @@ async def _run_single_agent_loop(cfg: AgentConfig, stop_event: asyncio.Event) ->
         _logger.debug("[%s] Enqueued %s jobs for channel=%s", cfg.sender, n_replies, channel)
 
 
-async def start_agents(stop_event: asyncio.Event) -> List[asyncio.Task]:
+async def start_agents(stop_event: asyncio.Event) -> list[asyncio.Task]:
     cfgs = _load_agent_configs()
     tasks = [asyncio.create_task(_run_single_agent_loop(cfg, stop_event)) for cfg in cfgs]
     if cfgs:
@@ -249,22 +256,33 @@ def _safe_trunc(s: str, n: int) -> str:
     return s[:n] + "…"
 
 
-_CHANNEL_TO_HANDLERS: Dict[str, List[Dict[str, object]]] = {}
+_CHANNEL_TO_HANDLERS: dict[str, list[dict[str, object]]] = {}
 _HANDLERS_LOCK = asyncio.Lock()
 
 
-def _register_wake_handler(cfg: AgentConfig, wake_event: asyncio.Event, wake_prob: float, cooldown_sec: int, last_wake_getter):
-    entry = {"event": wake_event, "prob": wake_prob, "cooldown": cooldown_sec, "last": last_wake_getter}
+def _register_wake_handler(
+    cfg: AgentConfig,
+    wake_event: asyncio.Event,
+    wake_prob: float,
+    cooldown_sec: int,
+    last_wake_getter,
+):
+    entry = {
+        "event": wake_event,
+        "prob": wake_prob,
+        "cooldown": cooldown_sec,
+        "last": last_wake_getter,
+    }
     for ch in cfg.channels:
         chan = f"chat:{ch}"
         _CHANNEL_TO_HANDLERS.setdefault(chan, []).append(entry)
 
 
-async def _wake_listener(cfgs: List[AgentConfig], stop_event: asyncio.Event) -> None:
+async def _wake_listener(cfgs: list[AgentConfig], stop_event: asyncio.Event) -> None:
     if state.redis_client is None:
         _logger.info("Wake listener not started; redis not ready")
         return
-    channels: Set[str] = set()
+    channels: set[str] = set()
     for cfg in cfgs:
         for ch in cfg.channels:
             channels.add(f"chat:{ch}")
@@ -281,7 +299,7 @@ async def _wake_listener(cfgs: List[AgentConfig], stop_event: asyncio.Event) -> 
                 continue
             chan = message.get("channel")
             handlers = _CHANNEL_TO_HANDLERS.get(chan, [])
-            
+
             for h in handlers:
                 try:
                     event: asyncio.Event = h["event"]
@@ -289,7 +307,7 @@ async def _wake_listener(cfgs: List[AgentConfig], stop_event: asyncio.Event) -> 
                     cooldown: int = h["cooldown"]
                     last_fn = h["last"]
                     last_at = last_fn()
-                    now = datetime.now(timezone.utc)
+                    now = datetime.now(UTC)
                     if last_at and (now - last_at).total_seconds() < cooldown:
                         continue
                     if random.random() < prob:
@@ -311,20 +329,23 @@ async def _wait_or_clear(ev: asyncio.Event) -> None:
     ev.clear()
 
 
-async def _wait_for_wake_or_timeout(stop_event: asyncio.Event, wake_event: asyncio.Event, timeout: int) -> Optional[bool]:
+async def _wait_for_wake_or_timeout(
+    stop_event: asyncio.Event, wake_event: asyncio.Event, timeout: int
+) -> bool | None:
     stop_task = asyncio.create_task(stop_event.wait())
     wake_task = asyncio.create_task(_wait_or_clear(wake_event))
     try:
-        done, pending = await asyncio.wait([stop_task, wake_task], timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+        done, _pending = await asyncio.wait(
+            [stop_task, wake_task], timeout=timeout, return_when=asyncio.FIRST_COMPLETED
+        )
         if stop_task in done:
             return None
-        if wake_task in done:
-            return True
-        return False
+        return wake_task in done
     finally:
         for t in (stop_task, wake_task):
             if not t.done():
                 t.cancel()
+
 
 def _normalize_text(s: str) -> str:
     s = s.lower()
@@ -355,7 +376,7 @@ async def _can_speak_now(sender: str) -> bool:
         if not last:
             return True
         last_ts = float(last)
-        return (datetime.now(timezone.utc).timestamp() - last_ts) >= min_gap
+        return (datetime.now(UTC).timestamp() - last_ts) >= min_gap
     except Exception:
         return True
 
@@ -365,7 +386,9 @@ async def _mark_spoke(sender: str) -> None:
         if state.redis_client is None:
             return
         key = f"agent:last_ts:{sender}"
-        await state.redis_client.set(key, str(datetime.now(timezone.utc).timestamp()), ex=int(_env("AGENT_LAST_TS_TTL_SEC", "7200")))
+        await state.redis_client.set(
+            key, str(datetime.now(UTC).timestamp()), ex=int(_env("AGENT_LAST_TS_TTL_SEC", "7200"))
+        )
     except Exception:
         pass
 
@@ -377,20 +400,21 @@ def _queue_key(channel: str) -> str:
 async def _enqueue_generation_job(sender: str, channel: str, model: str) -> None:
     if state.redis_client is None:
         return
-    # Note: persona_text is no longer stored in the job, as the worker fetches it from AgentConfig
-    job = json.dumps({
-        "sender": sender,
-        "channel": channel,
-        "model": model,
-        "ts": datetime.now(timezone.utc).astimezone(timezone.utc).isoformat(),
-    })
+    job = json.dumps(
+        {
+            "sender": sender,
+            "channel": channel,
+            "model": model,
+            "ts": datetime.now(UTC).astimezone(UTC).isoformat(),
+        }
+    )
     await state.redis_client.rpush(_queue_key(channel), job)
-    
+
     await state.redis_client.ltrim(_queue_key(channel), -200, -1)
 
 
 class _channel_mutex:
-    _locks: Dict[str, asyncio.Lock] = {}
+    _locks: ClassVar[dict[str, asyncio.Lock]] = {}
 
     def __init__(self, channel: str):
         self._channel = channel
@@ -416,24 +440,29 @@ async def _remember_hash_and_check(channel: str, h: str) -> bool:
         key = f"agent:recent_hash:{channel}"
         added = await state.redis_client.sadd(key, h)
         await state.redis_client.expire(key, int(_env("AGENT_RECENT_HASH_TTL_SEC", "1800")))
-        
+
         size = await state.redis_client.scard(key)
         if size and size > 500:
-            
             for _ in range(5):
                 await state.redis_client.spop(key)
         return bool(added)
     except Exception:
         return True
 
+
 async def _mark_channel_spoke(channel: str) -> None:
     try:
         if state.redis_client is None:
             return
         key = f"agent:chan_last_ts:{channel}"
-        await state.redis_client.set(key, str(datetime.now(timezone.utc).timestamp()), ex=int(_env("AGENT_CHAN_LAST_TS_TTL_SEC", "7200")))
+        await state.redis_client.set(
+            key,
+            str(datetime.now(UTC).timestamp()),
+            ex=int(_env("AGENT_CHAN_LAST_TS_TTL_SEC", "7200")),
+        )
     except Exception:
         pass
+
 
 TOOL_URL_FETCH = types.Tool(
     function_declarations=[
@@ -443,8 +472,14 @@ TOOL_URL_FETCH = types.Tool(
             parameters=types.Schema(
                 type=types.Type.OBJECT,
                 properties={
-                    "url": types.Schema(type=types.Type.STRING, description="The full URL to fetch, e.g., 'https://example.com/data.txt'"),
-                    "max_bytes": types.Schema(type=types.Type.INTEGER, description="Maximum content size to fetch (default 5000)."),
+                    "url": types.Schema(
+                        type=types.Type.STRING,
+                        description="The full URL to fetch, e.g., 'https://example.com/data.txt'",
+                    ),
+                    "max_bytes": types.Schema(
+                        type=types.Type.INTEGER,
+                        description="Maximum content size to fetch (default 5000).",
+                    ),
                 },
                 required=["url"],
             ),
@@ -460,9 +495,17 @@ TOOL_SEARCH_EVENTS = types.Tool(
             parameters=types.Schema(
                 type=types.Type.OBJECT,
                 properties={
-                    "topic": types.Schema(type=types.Type.STRING, description="A general topic string to search for."),
-                    "type": types.Schema(type=types.Type.STRING, description="A specific event type (e.g., 'user_joined', 'config_changed')."),
-                    "limit": types.Schema(type=types.Type.INTEGER, description="Maximum number of events to return (default 20)."),
+                    "topic": types.Schema(
+                        type=types.Type.STRING, description="A general topic string to search for."
+                    ),
+                    "type": types.Schema(
+                        type=types.Type.STRING,
+                        description="A specific event type (e.g., 'user_joined', 'config_changed').",
+                    ),
+                    "limit": types.Schema(
+                        type=types.Type.INTEGER,
+                        description="Maximum number of events to return (default 20).",
+                    ),
                 },
             ),
         )
@@ -477,22 +520,31 @@ TOOL_QUERY_CHAT = types.Tool(
             parameters=types.Schema(
                 type=types.Type.OBJECT,
                 properties={
-                    "channel": types.Schema(type=types.Type.STRING, description="The channel name (e.g., 'general', 'dev')."),
-                    "keyword": types.Schema(type=types.Type.STRING, description="A keyword to filter the messages by."),
-                    "limit": types.Schema(type=types.Type.INTEGER, description="Maximum number of messages to return (default 50)."),
+                    "channel": types.Schema(
+                        type=types.Type.STRING,
+                        description="The channel name (e.g., 'general', 'dev').",
+                    ),
+                    "keyword": types.Schema(
+                        type=types.Type.STRING, description="A keyword to filter the messages by."
+                    ),
+                    "limit": types.Schema(
+                        type=types.Type.INTEGER,
+                        description="Maximum number of messages to return (default 50).",
+                    ),
                 },
             ),
         )
     ]
 )
 
-ALL_TOOLS: List[types.Tool] = [
+ALL_TOOLS: list[types.Tool] = [
     TOOL_URL_FETCH,
     TOOL_SEARCH_EVENTS,
     TOOL_QUERY_CHAT,
 ]
 
-async def _tool_fetch_url(args: Dict[str, object]) -> str:
+
+async def _tool_fetch_url(args: dict[str, object]) -> str:
     url = str(args.get("url") or "")
     max_bytes = int(args.get("max_bytes") or 5000)
     timeout = int(args.get("timeout_sec") or 5)
@@ -501,16 +553,16 @@ async def _tool_fetch_url(args: Dict[str, object]) -> str:
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
         return "ERROR: unsupported scheme"
-    
+
     def _fetch_with_retries_sync() -> str:
         attempt = 0
         delay = backoff_ms / 1000.0
-        
+
         while attempt <= retries:
             try:
                 resp = requests.get(url, timeout=timeout, stream=True)
                 resp.raise_for_status()
-                
+
                 size = 0
                 chunks = []
                 for chunk in resp.iter_content(chunk_size=1024):
@@ -522,39 +574,40 @@ async def _tool_fetch_url(args: Dict[str, object]) -> str:
                         break
                     chunks.append(chunk)
                     size += len(chunk)
-                
+
                 data = b"".join(chunks)
                 text = data.decode("utf-8", errors="replace")
-                
+
                 return f"status={resp.status_code} content_type={resp.headers.get('Content-Type', '')}\n{text}"
-            
+
             except requests.exceptions.HTTPError as e:
-                # Handle rate limiting/transient errors with retry logic
                 if e.response.status_code in (429, 503):
                     ra = e.response.headers.get("Retry-After")
                     return_hint = f"status={e.response.status_code} rate_limited=true retry_after={ra or ''} content_type={e.response.headers.get('Content-Type', '')}\n{_safe_trunc(e.response.text, 500)}"
                     if attempt == retries:
                         return return_hint
-                    
+
                     wait = delay
                     try:
                         if ra:
                             wait = float(ra)
                     except Exception:
                         pass
-                    
+
                     import time
-                    time.sleep(wait) 
+
+                    time.sleep(wait)
                     attempt += 1
                     delay *= 2
                     continue
-                return f"ERROR: HTTP {e.response.status_code}: {repr(e)}"
-            
+                return f"ERROR: HTTP {e.response.status_code}: {e!r}"
+
             except requests.exceptions.RequestException as e:
                 if attempt == retries:
-                    return f"ERROR: Request failed: {repr(e)}"
-                
+                    return f"ERROR: Request failed: {e!r}"
+
                 import time
+
                 time.sleep(delay)
                 attempt += 1
                 delay *= 2
@@ -562,26 +615,33 @@ async def _tool_fetch_url(args: Dict[str, object]) -> str:
 
     return await asyncio.to_thread(_fetch_with_retries_sync)
 
+
 TOOL_MAP["tool_fetch_url"] = _tool_fetch_url
 
 
-async def _tool_search_events(args: Dict[str, object]) -> str:
+async def _tool_search_events(args: dict[str, object]) -> str:
     topic = args.get("topic")
     typ = args.get("type")
     limit = int(args.get("limit") or 20)
     try:
-        rows = await db.fetch_events(topic=str(topic) if topic else None, type=str(typ) if typ else None, before_iso=None, limit=limit)
+        rows = await db.fetch_events(
+            topic=str(topic) if topic else None,
+            type=str(typ) if typ else None,
+            before_iso=None,
+            limit=limit,
+        )
         out = {"count": len(rows), "events": rows}
         text = json.dumps(out)[: int(_env("AGENT_TOOL_MAX_OUTPUT_CHARS", "2000"))]
         return text
     except Exception as e:
         _logger.error("tool_search_events failed: %s", e)
-        return f"ERROR: {repr(e)}"
+        return f"ERROR: {e!r}"
+
 
 TOOL_MAP["tool_search_events"] = _tool_search_events
 
 
-async def _tool_query_chat(args: Dict[str, object]) -> str:
+async def _tool_query_chat(args: dict[str, object]) -> str:
     channel = str(args.get("channel") or "general")
     keyword = str(args.get("keyword") or "").lower()
     limit = int(args.get("limit") or 50)
@@ -593,12 +653,16 @@ async def _tool_query_chat(args: Dict[str, object]) -> str:
         return json.dumps(out)[: int(_env("AGENT_TOOL_MAX_OUTPUT_CHARS", "2000"))]
     except Exception as e:
         _logger.error("tool_query_chat failed: %s", e)
-        return f"ERROR: {repr(e)}"
+        return f"ERROR: {e!r}"
+
 
 TOOL_MAP["tool_query_chat"] = _tool_query_chat
 
-def _build_system_instruction(channel: str, persona: Optional[str], actors: List[Tuple[str, int]]) -> str:
-    lines: List[str] = [
+
+def _build_system_instruction(
+    channel: str, persona: str | None, actors: list[tuple[str, int]]
+) -> str:
+    lines: list[str] = [
         f"You are an autonomous agent named {channel} in the @{channel} channel.",
         "Your goal is to be a social peer and productive team member.",
         "Humans are the boss; prioritize their needs and decisions.",
@@ -617,35 +681,34 @@ def _build_system_instruction(channel: str, persona: Optional[str], actors: List
     return "\n".join(lines)
 
 
-def _build_history_contents(history: List[Tuple[str, str, datetime]]) -> List[types.Content]:
+def _build_history_contents(history: list[tuple[str, str, datetime]]) -> list[types.Content]:
     """Build history contents from already token-limited history."""
-    contents: List[types.Content] = []
+    contents: list[types.Content] = []
 
-    # History is already token-limited by _fetch_recent_messages_by_tokens
     for sender, text, ts in history:
         role = "user" if not sender.startswith("agent:") else "model"
-        prefixed_text = f"[{ts.astimezone(timezone.utc).isoformat()}] {sender}: {text}"
+        prefixed_text = f"[{ts.astimezone(UTC).isoformat()}] {sender}: {text}"
 
-        contents.append(
-            types.Content(
-                role=role,
-                parts=[types.Part(text=prefixed_text)]
-            )
-        )
+        contents.append(types.Content(role=role, parts=[types.Part(text=prefixed_text)]))
 
     contents.append(
         types.Content(
             role="user",
-            parts=[types.Part(text="Review the conversation history and your instructions. Now produce your next message (or call a tool). Return ONLY the message text or tool call.")]
+            parts=[
+                types.Part(
+                    text="Review the conversation history and your instructions. Now produce your next message (or call a tool). Return ONLY the message text or tool call."
+                )
+            ],
         )
     )
 
     return contents
 
+
 def _sync_generate_content(
     client: genai.Client,
     model: str,
-    contents: List[types.Content],
+    contents: list[types.Content],
     config: types.GenerateContentConfig,
 ) -> types.GenerateContentResponse:
     return client.models.generate_content(
@@ -654,14 +717,16 @@ def _sync_generate_content(
         config=config,
     )
 
+
 _client = genai.Client(api_key=_env("GEMINI_API_KEY", ""))
+
 
 async def _call_gemini_with_retry(
     cfg: AgentConfig,
-    contents: List[types.Content],
+    contents: list[types.Content],
     system_instruction: str,
     call_name: str = "call",
-) -> Optional[types.GenerateContentResponse]:
+) -> types.GenerateContentResponse | None:
     max_retry_sec = int(_env("AGENT_LLM_MAX_RETRY_SEC", "3600"))
     base_delay = 5
     elapsed = 0
@@ -676,57 +741,76 @@ async def _call_gemini_with_retry(
                 types.GenerateContentConfig(
                     system_instruction=system_instruction,
                     tools=ALL_TOOLS,
-                )
+                ),
             )
             return response
         except APIError as e:
-            if hasattr(e, 'code') and e.code == 429:
-                delay = min(base_delay * (2 ** attempt), max_retry_sec - elapsed, 300)
-                _logger.warning("[%s] %s rate limited, retrying in %.0fs (attempt %d)", cfg.sender, call_name, delay, attempt + 1)
+            if hasattr(e, "code") and e.code == 429:
+                delay = min(base_delay * (2**attempt), max_retry_sec - elapsed, 300)
+                _logger.warning(
+                    "[%s] %s rate limited, retrying in %.0fs (attempt %d)",
+                    cfg.sender,
+                    call_name,
+                    delay,
+                    attempt + 1,
+                )
                 await asyncio.sleep(delay)
                 elapsed += delay
                 attempt += 1
                 continue
             _logger.error("[%s] %s failed: %s", cfg.sender, call_name, e)
             return None
-        except Exception as e:
+        except Exception:
             _logger.exception("[%s] Unexpected error in %s", cfg.sender, call_name)
             return None
     _logger.error("[%s] %s exceeded max retry time of %ds", cfg.sender, call_name, max_retry_sec)
     return None
 
 
-async def _call_gemini_async(cfg: AgentConfig, channel: str, history: List[Tuple[str, str, datetime]]) -> Optional[str]:
+async def _call_gemini_async(
+    cfg: AgentConfig, channel: str, history: list[tuple[str, str, datetime]]
+) -> str | None:
     actors = _participants_from_history(history)
     system_instruction = _build_system_instruction(channel, cfg.persona, actors)
     contents = _build_history_contents(history)
 
-    _logger.debug("[%s] Calling Gemini with history_count=%d, model=%s", cfg.sender, len(contents), cfg.model)
+    _logger.debug(
+        "[%s] Calling Gemini with history_count=%d, model=%s", cfg.sender, len(contents), cfg.model
+    )
 
     response = await _call_gemini_with_retry(cfg, contents, system_instruction, "first Gemini call")
     if response is None:
         return None
 
     if response.function_calls:
-        _logger.info("[%s] Received %d tool calls for channel=%s", cfg.sender, len(response.function_calls), channel)
-        
-        tool_results: List[types.Part] = []
+        _logger.info(
+            "[%s] Received %d tool calls for channel=%s",
+            cfg.sender,
+            len(response.function_calls),
+            channel,
+        )
+
+        tool_results: list[types.Part] = []
         for call in response.function_calls:
             function_name = call.name
             tool_func = TOOL_MAP.get(function_name)
-            
+
             if not tool_func:
                 _logger.warning("[%s] Unknown function call: %s", cfg.sender, function_name)
                 result = f"ERROR: Unknown function {function_name}"
             else:
-                _logger.debug("[%s] Executing tool: %s(%s)", cfg.sender, function_name, dict(call.args))
+                _logger.debug(
+                    "[%s] Executing tool: %s(%s)", cfg.sender, function_name, dict(call.args)
+                )
                 try:
                     result = await tool_func(dict(call.args))
-                    _logger.debug("[%s] Tool %s result length: %d", cfg.sender, function_name, len(result))
+                    _logger.debug(
+                        "[%s] Tool %s result length: %d", cfg.sender, function_name, len(result)
+                    )
                 except Exception as e:
                     _logger.exception("[%s] Tool %s failed", cfg.sender, function_name)
                     result = f"ERROR: Tool execution failed with exception: {e}"
-            
+
             tool_results.append(
                 types.Part(
                     function_response=types.FunctionResponse(
@@ -737,44 +821,44 @@ async def _call_gemini_async(cfg: AgentConfig, channel: str, history: List[Tuple
             )
 
         contents.append(response.candidates[0].content)
-        contents.append(
-            types.Content(
-                role="tool",
-                parts=tool_results
-            )
-        )
+        contents.append(types.Content(role="tool", parts=tool_results))
 
-        # Check rate limit before second call (tool results also consume a request)
         if not await _can_make_request():
-            _logger.warning("[%s] Daily limit reached before second call; skipping tool response", cfg.sender)
+            _logger.warning(
+                "[%s] Daily limit reached before second call; skipping tool response", cfg.sender
+            )
             return None
 
         new_count = await _increment_daily_request_count()
-        _logger.debug("[%s] Second call to Gemini with tool results (request #%d).", cfg.sender, new_count)
-        response = await _call_gemini_with_retry(cfg, contents, system_instruction, "second Gemini call")
+        _logger.debug(
+            "[%s] Second call to Gemini with tool results (request #%d).", cfg.sender, new_count
+        )
+        response = await _call_gemini_with_retry(
+            cfg, contents, system_instruction, "second Gemini call"
+        )
         if response is None:
             return None
-
 
     if not response.candidates:
         _logger.warning("[%s] Gemini returned no candidates.", cfg.sender)
         return None
-    
+
     for part in response.candidates[0].content.parts:
         if part.text:
             text = part.text
-            _logger.debug("[%s] Gemini text_len=%s snippet=%s", cfg.sender, len(text), _safe_trunc(text, 200))
+            _logger.debug(
+                "[%s] Gemini text_len=%s snippet=%s", cfg.sender, len(text), _safe_trunc(text, 200)
+            )
             return text.strip()
 
     return None
 
-# --- Worker Logic (Modernized) ---
 
-async def _generation_worker(channels: List[str], stop_event: asyncio.Event) -> None:
+async def _generation_worker(channels: list[str], stop_event: asyncio.Event) -> None:
     if state.redis_client is None or state.event_bus is None:
         _logger.info("Generation worker not started; redis/event_bus not ready")
         return
-    
+
     api_key = _env("GEMINI_API_KEY", "")
     if not api_key:
         _logger.error("GEMINI_API_KEY is not set. Generation worker disabled.")
@@ -790,16 +874,15 @@ async def _generation_worker(channels: List[str], stop_event: asyncio.Event) -> 
             if res is None:
                 continue
             _key, raw = res
-            
+
             try:
                 job = json.loads(raw)
             except Exception:
                 continue
-            
+
             sender = job.get("sender") or ""
             channel = job.get("channel") or "general"
-            model = job.get("model") or _env("AGENT_MODEL", "gemini-2.5-pro")
-            
+
             cfg = cfg_map.get(sender)
             if not cfg:
                 _logger.warning("Job for unknown sender %s received.", sender)
@@ -810,18 +893,20 @@ async def _generation_worker(channels: List[str], stop_event: asyncio.Event) -> 
                     _logger.debug("[%s] Skipping message due to minimum turn gap.", sender)
                     continue
 
-                # Check global daily rate limit before making API call
                 if not await _can_make_request():
                     _logger.info("[%s] Skipping generation; daily request limit reached", sender)
                     continue
 
-                # Use token-based history fetching instead of time-based
                 history = await _fetch_recent_messages_by_tokens(channel, cfg.history_token_limit)
 
-                # Increment the daily request counter BEFORE making the API call
                 new_count = await _increment_daily_request_count()
-                _logger.info("[%s] Making API request %d for channel=%s with %d messages",
-                            sender, new_count, channel, len(history))
+                _logger.info(
+                    "[%s] Making API request %d for channel=%s with %d messages",
+                    sender,
+                    new_count,
+                    channel,
+                    len(history),
+                )
 
                 text = await _call_gemini_async(cfg, channel, history)
 
@@ -839,7 +924,7 @@ async def _generation_worker(channels: List[str], stop_event: asyncio.Event) -> 
                 await _mark_spoke(sender)
                 await _remember_agent_message(sender, text)
                 await _mark_channel_spoke(channel)
-        
+
         except APIError as e:
             _logger.error("Gemini API Error in worker: %s", e)
             await asyncio.sleep(1)

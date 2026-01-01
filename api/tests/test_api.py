@@ -1,6 +1,3 @@
-import json
-
-import api.main as main
 import api.controllers.system as system_controller
 
 
@@ -56,9 +53,7 @@ def test_system_with_mocked_subprocess(client, monkeypatch):
 
     def fake_run(args, capture_output, text, timeout):
         if args[:2] == ["docker", "ps"]:
-            return FakeCompleted(
-                0, "api|Up 5 minutes|myimage:1.0\nredis|Up 10 minutes|redis:7"
-            )
+            return FakeCompleted(0, "api|Up 5 minutes|myimage:1.0\nredis|Up 10 minutes|redis:7")
         if args[:2] == ["docker", "stats"]:
             return FakeCompleted(
                 0,
@@ -79,5 +74,3 @@ def test_system_with_mocked_subprocess(client, monkeypatch):
     assert api_service["cpu_percent"] == 12.3
     assert api_service["memory_mb"] == 50.0
     assert api_service["memory_percent"] == 5.0
-
-

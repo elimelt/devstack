@@ -1,5 +1,4 @@
 from fastapi import APIRouter
-from typing import Dict
 
 from api import state
 
@@ -7,7 +6,7 @@ router = APIRouter()
 
 
 @router.get("/health")
-async def health() -> Dict[str, str]:
+async def health() -> dict[str, str]:
     redis_status = "disconnected"
     if state.redis_client:
         try:
@@ -17,5 +16,3 @@ async def health() -> Dict[str, str]:
             redis_status = "unhealthy"
 
     return {"status": "ok", "redis": redis_status}
-
-

@@ -1,7 +1,8 @@
-from fastapi import APIRouter
-import subprocess
 import json
-from typing import Any, Dict
+import subprocess
+from typing import Any
+
+from fastapi import APIRouter
 
 from api import state
 
@@ -9,7 +10,7 @@ router = APIRouter()
 
 
 @router.get("/system")
-async def get_system() -> Dict[str, Any]:
+async def get_system() -> dict[str, Any]:
     if state.redis_client:
         cached = await state.redis_client.get("system_stats")
         if cached:
@@ -18,6 +19,7 @@ async def get_system() -> Dict[str, Any]:
     try:
         result = subprocess.run(
             ["docker", "ps", "--format", "{{.Names}}|{{.Status}}|{{.Image}}"],
+            check=False,
             capture_output=True,
             text=True,
             timeout=3,
@@ -40,8 +42,15 @@ async def get_system() -> Dict[str, Any]:
         stats_map = {}
         if container_names:
             stats_result = subprocess.run(
-                ["docker", "stats", "--no-stream", "--format", "{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}"]
+                [
+                    "docker",
+                    "stats",
+                    "--no-stream",
+                    "--format",
+                    "{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}",
+                ]
                 + container_names,
+                check=False,
                 capture_output=True,
                 text=True,
                 timeout=5,
@@ -101,5 +110,3 @@ async def get_system() -> Dict[str, Any]:
         return {"error": "Docker command timed out"}
     except Exception as e:
         return {"error": str(e)}
-
-

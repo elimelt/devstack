@@ -1,5 +1,6 @@
+from typing import Any
+
 from fastapi import APIRouter
-from typing import Dict, Optional, Any
 from pydantic import BaseModel
 
 from api import state
@@ -7,14 +8,14 @@ from api import state
 
 class CacheValue(BaseModel):
     value: str
-    ttl: Optional[int] = 3600
+    ttl: int | None = 3600
 
 
 router = APIRouter()
 
 
 @router.get("/cache/{key}")
-async def get_cache(key: str) -> Dict[str, Any]:
+async def get_cache(key: str) -> dict[str, Any]:
     if not state.redis_client:
         return {"error": "Redis not connected"}
 
@@ -26,11 +27,9 @@ async def get_cache(key: str) -> Dict[str, Any]:
 
 
 @router.post("/cache/{key}")
-async def set_cache(key: str, data: CacheValue) -> Dict[str, Any]:
+async def set_cache(key: str, data: CacheValue) -> dict[str, Any]:
     if not state.redis_client:
         return {"error": "Redis not connected"}
 
     await state.redis_client.setex(key, data.ttl, data.value)
     return {"key": key, "value": data.value, "ttl": data.ttl, "success": True}
-
-

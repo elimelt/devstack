@@ -1,11 +1,11 @@
-from typing import Literal, Optional, TypedDict, Union
+from typing import Literal, TypedDict
 
 
 class Location(TypedDict, total=False):
     country: str
     city: str
-    lat: Optional[float]
-    lon: Optional[float]
+    lat: float | None
+    lon: float | None
 
 
 class Visitor(TypedDict):
@@ -28,7 +28,7 @@ class PingEvent(TypedDict):
     type: Literal["ping"]
 
 
-VisitorEvent = Union[JoinEvent, LeaveEvent, PingEvent]
+VisitorEvent = JoinEvent | LeaveEvent | PingEvent
 
 
 class ChatMessageEvent(TypedDict):
@@ -37,7 +37,5 @@ class ChatMessageEvent(TypedDict):
     sender: str
     text: str
     timestamp: str
-    id: Optional[str]
-    reply_to: Optional[str]
-
-
+    id: str | None
+    reply_to: str | None

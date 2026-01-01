@@ -1,8 +1,9 @@
-import re
-import logging
 import hashlib
-from typing import Optional, List, Dict, Any
+import logging
+import re
 from collections import Counter
+from typing import Any
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, field_validator
 
@@ -15,6 +16,7 @@ router = APIRouter()
 def _hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
+
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 SLOT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:00Z$")
@@ -22,10 +24,10 @@ SLOT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:00Z$")
 
 class CreateEventRequest(BaseModel):
     name: str
-    description: Optional[str] = None
-    dates: List[str]
-    time_slots: List[str]
-    creator_name: Optional[str] = None
+    description: str | None = None
+    dates: list[str]
+    time_slots: list[str]
+    creator_name: str | None = None
 
     @field_validator("name")
     @classmethod
@@ -37,7 +39,7 @@ class CreateEventRequest(BaseModel):
 
     @field_validator("dates")
     @classmethod
-    def validate_dates(cls, v: List[str]) -> List[str]:
+    def validate_dates(cls, v: list[str]) -> list[str]:
         if not v:
             raise ValueError("dates must not be empty")
         for d in v:
@@ -47,7 +49,7 @@ class CreateEventRequest(BaseModel):
 
     @field_validator("time_slots")
     @classmethod
-    def validate_time_slots(cls, v: List[str]) -> List[str]:
+    def validate_time_slots(cls, v: list[str]) -> list[str]:
         if not v:
             raise ValueError("time_slots must not be empty")
         for t in v:
@@ -58,8 +60,8 @@ class CreateEventRequest(BaseModel):
 
 class AvailabilityRequest(BaseModel):
     participant_name: str
-    available_slots: List[str]
-    password: Optional[str] = None
+    available_slots: list[str]
+    password: str | None = None
 
     @field_validator("participant_name")
     @classmethod
@@ -71,7 +73,7 @@ class AvailabilityRequest(BaseModel):
 
     @field_validator("available_slots")
     @classmethod
-    def validate_available_slots(cls, v: List[str]) -> List[str]:
+    def validate_available_slots(cls, v: list[str]) -> list[str]:
         for s in v:
             if not SLOT_RE.match(s):
                 raise ValueError(f"invalid slot format: {s}")
@@ -79,15 +81,17 @@ class AvailabilityRequest(BaseModel):
 
     @field_validator("password")
     @classmethod
-    def validate_password(cls, v: Optional[str]) -> Optional[str]:
+    def validate_password(cls, v: str | None) -> str | None:
         if v is not None and len(v) > 200:
             raise ValueError("password must be at most 200 characters")
         return v
 
 
 @router.post("/events", status_code=201)
-async def create_event(req: CreateEventRequest) -> Dict[str, Any]:
-    logger.info("POST /events name=%s dates=%d time_slots=%d", req.name, len(req.dates), len(req.time_slots))
+async def create_event(req: CreateEventRequest) -> dict[str, Any]:
+    logger.info(
+        "POST /events name=%s dates=%d time_slots=%d", req.name, len(req.dates), len(req.time_slots)
+    )
     try:
         event = await db.w2m_create_event(
             name=req.name,
@@ -100,11 +104,11 @@ async def create_event(req: CreateEventRequest) -> Dict[str, Any]:
         return event
     except Exception as e:
         logger.exception("Failed to create event")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/events/{event_id}")
-async def get_event(event_id: str) -> Dict[str, Any]:
+async def get_event(event_id: str) -> dict[str, Any]:
     logger.info("GET /events/%s", event_id)
     event = await db.w2m_get_event(event_id)
     if not event:
@@ -124,8 +128,13 @@ async def get_event(event_id: str) -> Dict[str, Any]:
 
 
 @router.post("/events/{event_id}/availability")
-async def submit_availability(event_id: str, req: AvailabilityRequest) -> Dict[str, Any]:
-    logger.info("POST /events/%s/availability participant=%s slots=%d", event_id, req.participant_name, len(req.available_slots))
+async def submit_availability(event_id: str, req: AvailabilityRequest) -> dict[str, Any]:
+    logger.info(
+        "POST /events/%s/availability participant=%s slots=%d",
+        event_id,
+        req.participant_name,
+        len(req.available_slots),
+    )
     event = await db.w2m_get_event(event_id)
     if not event:
         logger.warning("Event not found: %s", event_id)
@@ -144,10 +153,11 @@ async def submit_availability(event_id: str, req: AvailabilityRequest) -> Dict[s
             raise HTTPException(status_code=403, detail="Wrong password")
     password_hash = _hash_password(req.password) if req.password and not existing else None
     try:
-        result = await db.w2m_upsert_availability(event_id, req.participant_name, req.available_slots, password_hash)
+        result = await db.w2m_upsert_availability(
+            event_id, req.participant_name, req.available_slots, password_hash
+        )
         logger.info("Upserted availability for %s on event %s", req.participant_name, event_id)
         return result
     except Exception as e:
         logger.exception("Failed to upsert availability")
-        raise HTTPException(status_code=500, detail=str(e))
-
+        raise HTTPException(status_code=500, detail=str(e)) from e

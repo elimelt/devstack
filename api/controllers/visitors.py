@@ -1,5 +1,6 @@
-from fastapi import APIRouter
 import json
+
+from fastapi import APIRouter
 
 from api import state
 
@@ -25,5 +26,3 @@ async def get_visitors() -> dict:
         "active_visitors": active_visitors,
         "recent_visits": visits,
     }
-
-

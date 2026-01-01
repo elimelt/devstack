@@ -1,12 +1,13 @@
+import json
 import os
 import secrets
 import string
-import json
-from typing import Optional, List, Dict, Any
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 import psycopg
 from psycopg import errors as pg_errors
+
 
 def _dsn_from_env() -> str:
     host = os.getenv("POSTGRES_HOST", os.getenv("PGHOST", "postgres"))
@@ -14,7 +15,9 @@ def _dsn_from_env() -> str:
     user = os.getenv("POSTGRES_USER", os.getenv("PGUSER", "devuser"))
     password = os.getenv("POSTGRES_PASSWORD", os.getenv("PGPASSWORD", ""))
     dbname = os.getenv("POSTGRES_DB", os.getenv("PGDATABASE", "devdb"))
-    return f"host={host} port={port} user={user} password={password} dbname={dbname} sslmode=disable"
+    return (
+        f"host={host} port={port} user={user} password={password} dbname={dbname} sslmode=disable"
+    )
 
 
 async def init_pool() -> None:
@@ -53,13 +56,21 @@ async def _ensure_schema() -> None:
             """
         )
         try:
-            await conn.execute("ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ NULL;")
-            await conn.execute("ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS message_id TEXT NULL;")
-            await conn.execute("ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS reply_to TEXT NULL;")
+            await conn.execute(
+                "ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ NULL;"
+            )
+            await conn.execute(
+                "ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS message_id TEXT NULL;"
+            )
+            await conn.execute(
+                "ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS reply_to TEXT NULL;"
+            )
         except Exception:
             pass
         try:
-            await conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_chat_message_id ON chat_messages (message_id) WHERE message_id IS NOT NULL;")
+            await conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_chat_message_id ON chat_messages (message_id) WHERE message_id IS NOT NULL;"
+            )
         except Exception:
             pass
         await conn.execute(
@@ -89,7 +100,14 @@ async def _ensure_schema() -> None:
         )
 
 
-async def insert_chat_message(channel: str, sender: str, text: str, ts_iso: str, message_id: Optional[str] = None, reply_to: Optional[str] = None) -> None:
+async def insert_chat_message(
+    channel: str,
+    sender: str,
+    text: str,
+    ts_iso: str,
+    message_id: str | None = None,
+    reply_to: str | None = None,
+) -> None:
     ts = datetime.fromisoformat(ts_iso.replace("Z", "+00:00"))
     dsn = _dsn_from_env()
     async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
@@ -116,11 +134,13 @@ async def insert_event(topic: str, event_type: str, payload: dict, ts_iso: str) 
         )
 
 
-async def fetch_chat_history(channel: str, before_iso: Optional[str], limit: int) -> List[Dict[str, Any]]:
+async def fetch_chat_history(
+    channel: str, before_iso: str | None, limit: int
+) -> list[dict[str, Any]]:
     before_ts = (
         datetime.fromisoformat(before_iso.replace("Z", "+00:00"))
         if before_iso
-        else datetime.now(timezone.utc)
+        else datetime.now(UTC)
     )
     dsn = _dsn_from_env()
     async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
@@ -138,7 +158,7 @@ async def fetch_chat_history(channel: str, before_iso: Optional[str], limit: int
                         "channel": channel_v,
                         "sender": sender,
                         "text": text,
-                        "timestamp": ts.astimezone(timezone.utc).isoformat(),
+                        "timestamp": ts.astimezone(UTC).isoformat(),
                         "id": mid,
                         "reply_to": reply_to,
                     }
@@ -159,22 +179,22 @@ async def fetch_chat_history(channel: str, before_iso: Optional[str], limit: int
                     "channel": channel_v,
                     "sender": sender,
                     "text": text,
-                    "timestamp": ts.astimezone(timezone.utc).isoformat(),
+                    "timestamp": ts.astimezone(UTC).isoformat(),
                 }
             )
         return result
 
 
 async def fetch_events(
-    topic: Optional[str],
-    event_type: Optional[str],
-    before_iso: Optional[str],
+    topic: str | None,
+    event_type: str | None,
+    before_iso: str | None,
     limit: int,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     before_ts = (
         datetime.fromisoformat(before_iso.replace("Z", "+00:00"))
         if before_iso
-        else datetime.now(timezone.utc)
+        else datetime.now(UTC)
     )
     dsn = _dsn_from_env()
     clauses = ["ts < %s"]
@@ -190,23 +210,25 @@ async def fetch_events(
     params.append(limit)
     async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
         rows = await conn.execute(sql, tuple(params))
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         async for row in rows:
             topic_v, type_v, ts, payload = row
             out.append(
                 {
                     "topic": topic_v,
                     "type": type_v,
-                    "timestamp": ts.astimezone(timezone.utc).isoformat(),
+                    "timestamp": ts.astimezone(UTC).isoformat(),
                     "payload": payload,
                 }
             )
         return out
 
 
-async def soft_delete_chat_history(channel: Optional[str] = None, before_iso: Optional[str] = None) -> int:
+async def soft_delete_chat_history(
+    channel: str | None = None, before_iso: str | None = None
+) -> int:
     dsn = _dsn_from_env()
-    conditions: List[str] = ["deleted_at IS NULL"]
+    conditions: list[str] = ["deleted_at IS NULL"]
     params: list[Any] = []
     if channel:
         conditions.append("channel = %s")
@@ -217,7 +239,7 @@ async def soft_delete_chat_history(channel: Optional[str] = None, before_iso: Op
         params.append(before_ts)
     where = " AND ".join(conditions) if conditions else "TRUE"
     sql = f"UPDATE chat_messages SET deleted_at = %s WHERE {where} RETURNING id"
-    now_ts = datetime.now(timezone.utc)
+    now_ts = datetime.now(UTC)
     async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
         rows = await conn.execute(sql, tuple([now_ts] + params))
         count = 0
@@ -228,18 +250,18 @@ async def soft_delete_chat_history(channel: Optional[str] = None, before_iso: Op
 
 def _generate_event_id(length: int = 10) -> str:
     chars = string.ascii_lowercase + string.digits
-    return ''.join(secrets.choice(chars) for _ in range(length))
+    return "".join(secrets.choice(chars) for _ in range(length))
 
 
 async def w2m_create_event(
     name: str,
-    dates: List[str],
-    time_slots: List[str],
-    description: Optional[str] = None,
-    creator_name: Optional[str] = None,
-) -> Dict[str, Any]:
+    dates: list[str],
+    time_slots: list[str],
+    description: str | None = None,
+    creator_name: str | None = None,
+) -> dict[str, Any]:
     dsn = _dsn_from_env()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
         for _ in range(10):
             event_id = _generate_event_id()
@@ -247,7 +269,15 @@ async def w2m_create_event(
                 await conn.execute(
                     """INSERT INTO w2m_events (id, name, description, dates, time_slots, created_at, creator_name)
                        VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-                    (event_id, name, description, json.dumps(dates), json.dumps(time_slots), now, creator_name),
+                    (
+                        event_id,
+                        name,
+                        description,
+                        json.dumps(dates),
+                        json.dumps(time_slots),
+                        now,
+                        creator_name,
+                    ),
                 )
                 return {
                     "id": event_id,
@@ -263,7 +293,7 @@ async def w2m_create_event(
         raise RuntimeError("Failed to generate unique event ID")
 
 
-async def w2m_get_event(event_id: str) -> Optional[Dict[str, Any]]:
+async def w2m_get_event(event_id: str) -> dict[str, Any] | None:
     dsn = _dsn_from_env()
     async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
         rows = await conn.execute(
@@ -279,12 +309,12 @@ async def w2m_get_event(event_id: str) -> Optional[Dict[str, Any]]:
             "description": row[2],
             "dates": row[3],
             "time_slots": row[4],
-            "created_at": row[5].astimezone(timezone.utc).isoformat(),
+            "created_at": row[5].astimezone(UTC).isoformat(),
             "creator_name": row[6],
         }
 
 
-async def w2m_get_availabilities(event_id: str) -> List[Dict[str, Any]]:
+async def w2m_get_availabilities(event_id: str) -> list[dict[str, Any]]:
     dsn = _dsn_from_env()
     async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
         rows = await conn.execute(
@@ -293,35 +323,44 @@ async def w2m_get_availabilities(event_id: str) -> List[Dict[str, Any]]:
         )
         result = []
         async for row in rows:
-            result.append({
-                "participant_name": row[0],
-                "available_slots": row[1],
-                "created_at": row[2].astimezone(timezone.utc).isoformat(),
-                "updated_at": row[3].astimezone(timezone.utc).isoformat(),
-            })
+            result.append(
+                {
+                    "participant_name": row[0],
+                    "available_slots": row[1],
+                    "created_at": row[2].astimezone(UTC).isoformat(),
+                    "updated_at": row[3].astimezone(UTC).isoformat(),
+                }
+            )
         return result
 
 
-async def w2m_get_availability(event_id: str, participant_name: str) -> Optional[Dict[str, Any]]:
+async def w2m_get_availability(event_id: str, participant_name: str) -> dict[str, Any] | None:
     dsn = _dsn_from_env()
     async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
-        row = await (await conn.execute(
-            "SELECT available_slots, password_hash, created_at, updated_at FROM w2m_availabilities WHERE event_id = %s AND participant_name = %s",
-            (event_id, participant_name),
-        )).fetchone()
+        row = await (
+            await conn.execute(
+                "SELECT available_slots, password_hash, created_at, updated_at FROM w2m_availabilities WHERE event_id = %s AND participant_name = %s",
+                (event_id, participant_name),
+            )
+        ).fetchone()
         if not row:
             return None
         return {
             "available_slots": row[0],
             "password_hash": row[1],
-            "created_at": row[2].astimezone(timezone.utc).isoformat(),
-            "updated_at": row[3].astimezone(timezone.utc).isoformat(),
+            "created_at": row[2].astimezone(UTC).isoformat(),
+            "updated_at": row[3].astimezone(UTC).isoformat(),
         }
 
 
-async def w2m_upsert_availability(event_id: str, participant_name: str, available_slots: List[str], password_hash: Optional[str] = None) -> Dict[str, Any]:
+async def w2m_upsert_availability(
+    event_id: str,
+    participant_name: str,
+    available_slots: list[str],
+    password_hash: str | None = None,
+) -> dict[str, Any]:
     dsn = _dsn_from_env()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
         if password_hash is not None:
             await conn.execute(

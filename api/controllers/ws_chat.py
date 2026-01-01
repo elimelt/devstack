@@ -1,10 +1,11 @@
 import asyncio
 import json
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from api.producers.chat_producer import build_chat_message, publish_chat_message
-from api.bus import EventBus
 from api import state
+from api.bus import EventBus
+from api.producers.chat_producer import build_chat_message, publish_chat_message
 
 router = APIRouter()
 
@@ -62,5 +63,3 @@ async def websocket_chat(websocket: WebSocket, channel: str) -> None:
             await pubsub.aclose()
         else:
             await pubsub.close()
-
-
