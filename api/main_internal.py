@@ -1,5 +1,3 @@
-"""Internal API entrypoint - not publicly accessible, only via authenticated homepage."""
-
 import logging
 import os
 
@@ -20,13 +18,23 @@ from redis.asyncio import BlockingConnectionPool as RedisConnectionPool
 
 from api import db, state
 from api.agents.augment_agent import start_augment_agent
+from api.batch.notes_sync_scheduler import start_notes_sync_scheduler
 from api.bus import EventBus
+from api.controllers.analytics_clicks_write import router as analytics_clicks_write_router
 from api.controllers.augment_chat import router as augment_chat_router
+from api.controllers.cache_write import router as cache_write_router
 from api.controllers.chat_admin import router as chat_admin_router
 from api.controllers.health import router as health_router
+from api.controllers.notes_write import router as notes_write_router
+from api.controllers.notes_search_write import router as notes_search_write_router
+from api.controllers.when2meet_write import router as when2meet_write_router
 from api.redis_debug import wrap_redis_client
 
-app = FastAPI(title="DevStack Internal API", version="1.0.0")
+app = FastAPI(
+    title="DevStack Internal API",
+    version="1.0.0",
+    root_path="/api",
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,6 +53,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     global redis_client, event_bus
     stop_event: asyncio.Event | None = None
     agent_tasks: list[asyncio.Task] = []
+    sync_tasks: list[asyncio.Task] = []
 
     redis_host = os.getenv("REDIS_HOST", "redis")
     redis_port = int(os.getenv("REDIS_PORT", "6379"))
@@ -80,24 +89,29 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         except Exception:
             pass
 
-    # Start Augment agent
     enable_agent = os.getenv("ENABLE_AUGMENT_AGENT", "1") == "1"
     if enable_agent:
         stop_event = asyncio.Event()
         agent_tasks = await start_augment_agent(stop_event)
 
+    enable_sync = os.getenv("NOTES_SYNC_ENABLED", "1") == "1"
+    if enable_sync and enable_db:
+        if stop_event is None:
+            stop_event = asyncio.Event()
+        sync_tasks = await start_notes_sync_scheduler(stop_event)
+
     try:
         yield
     finally:
-        # Stop agent tasks
-        if agent_tasks and stop_event:
+        all_tasks = agent_tasks + sync_tasks
+        if all_tasks and stop_event:
             stop_event.set()
             try:
                 await asyncio.wait_for(
-                    asyncio.gather(*agent_tasks, return_exceptions=True), timeout=5
+                    asyncio.gather(*all_tasks, return_exceptions=True), timeout=5
                 )
             except Exception:
-                for t in agent_tasks:
+                for t in all_tasks:
                     t.cancel()
 
         if enable_db:
@@ -122,5 +136,11 @@ app.router.lifespan_context = lifespan
 app.include_router(health_router)
 app.include_router(augment_chat_router)
 app.include_router(chat_admin_router)
+
+app.include_router(cache_write_router)
+app.include_router(analytics_clicks_write_router)
+app.include_router(notes_write_router)
+app.include_router(notes_search_write_router)
+app.include_router(when2meet_write_router, prefix="/w2m")
 
 Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)

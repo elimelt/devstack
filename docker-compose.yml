@@ -68,7 +68,7 @@ services:
       - "traefik.http.middlewares.auth.basicauth.users=${BASIC_AUTH_USERS}"
 
   postgres:
-    image: postgres:${POSTGRES_VERSION:-16-alpine}
+    image: pgvector/pgvector:pg16
     container_name: postgres
     restart: always
     environment:
@@ -246,6 +246,8 @@ services:
       - AGENT_MAX_SLEEP_SEC=${AGENT_MAX_SLEEP_SEC:-120}
       - AGENT_WAKE_PROB=${AGENT_WAKE_PROB:-0.2}
       - AGENT_WAKE_COOLDOWN_SEC=${AGENT_WAKE_COOLDOWN_SEC:-45}
+      - AGENT_DEBUG=${AGENT_DEBUG:-0}
+      - AGENT_LOG_LEVEL=${AGENT_LOG_LEVEL:-INFO}
       - REDIS_MAX_CONNECTIONS=${REDIS_MAX_CONNECTIONS:-200}
       - REDIS_POOL_TIMEOUT_SEC=${REDIS_POOL_TIMEOUT_SEC:-5}
       - REDIS_DEBUG=${REDIS_DEBUG:-0}
@@ -261,6 +263,8 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-devuser}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB:-devdb}
+      - NOTES_SYNC_SECRET=${NOTES_SYNC_SECRET:-}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
     depends_on:
       - redis
       - postgres
@@ -286,6 +290,8 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-devuser}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB:-devdb}
+      - NOTES_SYNC_SECRET=${NOTES_SYNC_SECRET:-}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
     depends_on:
       - redis
       - postgres

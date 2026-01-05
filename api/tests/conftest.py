@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api import main
+from api import main_internal
 
 
 class _AwaitableRedis:
@@ -33,4 +34,16 @@ def client(monkeypatch):
     main.geoip_reader = None
 
     with TestClient(main.app) as c:
+        yield c
+
+
+@pytest.fixture
+def internal_client(monkeypatch):
+    def fake_redis_constructor(*_args, **_kwargs):
+        fake = fakeredis.FakeRedis(decode_responses=True)
+        return _AwaitableRedis(fake)
+
+    monkeypatch.setattr(main_internal.redis, "Redis", fake_redis_constructor)
+
+    with TestClient(main_internal.app) as c:
         yield c

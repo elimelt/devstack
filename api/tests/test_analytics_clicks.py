@@ -1,5 +1,3 @@
-"""Unit tests for the analytics_clicks controller."""
-
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -8,10 +6,8 @@ from api import db
 
 
 class TestPostAnalyticsClicks:
-    """Tests for POST /analytics/clicks endpoint."""
 
-    def test_receive_valid_batch_of_click_events(self, client, monkeypatch):
-        """Test receiving a valid batch of click events returns 202 and accepted count."""
+    def test_receive_valid_batch_of_click_events(self, internal_client, monkeypatch):
         mock_insert = AsyncMock(return_value=3)
         monkeypatch.setattr(db, "insert_click_events", mock_insert)
 
@@ -48,37 +44,33 @@ class TestPostAnalyticsClicks:
             ],
         }
 
-        response = client.post("/analytics/clicks", json=payload)
+        response = internal_client.post("/analytics/clicks", json=payload)
 
         assert response.status_code == 202
         body = response.json()
         assert body["accepted"] == 3
         assert body["message"] == "Events accepted"
 
-        # Verify the mock was called with the events
         mock_insert.assert_called_once()
         call_args = mock_insert.call_args
-        assert len(call_args[0][0]) == 3  # 3 events passed
+        assert len(call_args[0][0]) == 3
 
-    def test_receive_empty_events_array(self, client, monkeypatch):
-        """Test receiving an empty events array returns 0 accepted."""
+    def test_receive_empty_events_array(self, internal_client, monkeypatch):
         mock_insert = AsyncMock(return_value=0)
         monkeypatch.setattr(db, "insert_click_events", mock_insert)
 
         payload = {"topic": "clicks", "events": []}
 
-        response = client.post("/analytics/clicks", json=payload)
+        response = internal_client.post("/analytics/clicks", json=payload)
 
         assert response.status_code == 202
         body = response.json()
         assert body["accepted"] == 0
         assert body["message"] == "No events provided"
 
-        # insert_click_events should not be called for empty events
         mock_insert.assert_not_called()
 
-    def test_client_ip_extracted_from_x_forwarded_for_header(self, client, monkeypatch):
-        """Test that client_ip is correctly extracted from x-forwarded-for header."""
+    def test_client_ip_extracted_from_x_forwarded_for_header(self, internal_client, monkeypatch):
         captured_ip = []
 
         async def mock_insert(events, client_ip):
@@ -92,7 +84,7 @@ class TestPostAnalyticsClicks:
             "events": [{"ts": 1704067200000, "seq": 1}],
         }
 
-        response = client.post(
+        response = internal_client.post(
             "/analytics/clicks",
             json=payload,
             headers={"x-forwarded-for": "192.168.1.100, 10.0.0.1"},
@@ -100,10 +92,9 @@ class TestPostAnalyticsClicks:
 
         assert response.status_code == 202
         assert len(captured_ip) == 1
-        assert captured_ip[0] == "192.168.1.100"  # First IP in the chain
+        assert captured_ip[0] == "192.168.1.100"
 
-    def test_database_error_still_returns_202(self, client, monkeypatch):
-        """Test that database errors still return 202 to avoid client retries."""
+    def test_database_error_still_returns_202(self, internal_client, monkeypatch):
         mock_insert = AsyncMock(side_effect=Exception("Database connection failed"))
         monkeypatch.setattr(db, "insert_click_events", mock_insert)
 
@@ -112,7 +103,7 @@ class TestPostAnalyticsClicks:
             "events": [{"ts": 1704067200000, "seq": 1}],
         }
 
-        response = client.post("/analytics/clicks", json=payload)
+        response = internal_client.post("/analytics/clicks", json=payload)
 
         assert response.status_code == 202
         body = response.json()
@@ -121,10 +112,8 @@ class TestPostAnalyticsClicks:
 
 
 class TestGetAnalyticsClicks:
-    """Tests for GET /analytics/clicks endpoint."""
 
     def test_fetch_click_events_with_default_parameters(self, client, monkeypatch):
-        """Test fetching click events with default parameters."""
         mock_events = [
             {"timestamp": "2024-01-01T00:00:00+00:00", "event": {"ts": 1704067200000}},
             {"timestamp": "2024-01-01T00:01:00+00:00", "event": {"ts": 1704067260000}},
@@ -144,7 +133,6 @@ class TestGetAnalyticsClicks:
         assert body["filters"]["page_path"] is None
 
     def test_fetch_with_optional_query_filters(self, client, monkeypatch):
-        """Test fetching click events with optional query filters."""
         mock_fetch = AsyncMock(return_value=[])
         monkeypatch.setattr(db, "fetch_click_events", mock_fetch)
 
@@ -165,7 +153,6 @@ class TestGetAnalyticsClicks:
         assert body["filters"]["page_path"] == "/about"
         assert body["filters"]["limit"] == 50
 
-        # Verify the mock was called with the correct filters
         mock_fetch.assert_called_once_with(
             start_date="2024-01-01T00:00:00Z",
             end_date="2024-01-02T00:00:00Z",
@@ -174,7 +161,6 @@ class TestGetAnalyticsClicks:
         )
 
     def test_fetch_database_error_returns_empty_with_error(self, client, monkeypatch):
-        """Test that database errors return empty results with error message."""
         mock_fetch = AsyncMock(side_effect=Exception("Database query failed"))
         monkeypatch.setattr(db, "fetch_click_events", mock_fetch)
 

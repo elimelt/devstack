@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -8,6 +9,7 @@ from api.bus import EventBus
 from api.producers.chat_producer import build_chat_message, publish_chat_message
 
 router = APIRouter()
+_logger = logging.getLogger("api.controllers.ws_chat")
 
 
 @router.websocket("/ws/chat/{channel}")
@@ -44,17 +46,23 @@ async def websocket_chat(websocket: WebSocket, channel: str) -> None:
     try:
         while True:
             raw = await websocket.receive_text()
+            _logger.debug("[ws_chat] Received raw message: %s", raw[:500] if raw else "<empty>")
             try:
                 payload = json.loads(raw)
                 text = payload.get("text")
                 if not text:
+                    _logger.debug("[ws_chat] No text in payload, skipping")
                     continue
-            except Exception:
+            except Exception as e:
+                _logger.debug("[ws_chat] Failed to parse payload: %s", e)
                 continue
+            _logger.info("[ws_chat] Human message from %s on channel=%s: %s", sender, channel, text[:200] if text else "<empty>")
             event = build_chat_message(channel=channel, sender=sender, text=text)
+            _logger.debug("[ws_chat] Built event: %s", event)
             await publish_chat_message(state.event_bus, channel, event)
+            _logger.debug("[ws_chat] Published message to channel=%s", channel)
     except WebSocketDisconnect:
-        pass
+        _logger.debug("[ws_chat] WebSocket disconnected for %s", sender)
     finally:
         update_task.cancel()
         heartbeat_task.cancel()

@@ -16,7 +16,7 @@ RUN wget -O GeoLite2-City.mmdb "https://github.com/P3TERX/GeoLite.mmdb/raw/downl
 
 COPY main.py .
 RUN mkdir -p /app/api
-COPY __init__.py bus.py events.py state.py db.py middleware.py redis_debug.py /app/api/
+COPY __init__.py bus.py events.py state.py db.py middleware.py redis_debug.py notes_sync.py notes_embeddings.py /app/api/
 COPY controllers /app/api/controllers
 COPY producers /app/api/producers
 COPY agents /app/api/agents

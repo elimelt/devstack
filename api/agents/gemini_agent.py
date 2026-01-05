@@ -38,7 +38,6 @@ _VOTE_PREFIX = "[vote]"
 
 
 def _estimate_tokens(text: str) -> int:
-    """Estimate token count for a string. Rough approximation: ~4 chars per token."""
     if not text:
         return 0
     return max(1, len(text) // 4)
@@ -49,7 +48,6 @@ _DAILY_LIMIT_DATE_KEY = "agent:daily_request_date"
 
 
 async def _get_daily_request_count() -> int:
-    """Get current daily request count, resetting if date changed."""
     if state.redis_client is None:
         return 0
     try:
@@ -66,7 +64,6 @@ async def _get_daily_request_count() -> int:
 
 
 async def _increment_daily_request_count() -> int:
-    """Increment and return the new daily request count."""
     if state.redis_client is None:
         return 0
     try:
@@ -83,7 +80,6 @@ async def _increment_daily_request_count() -> int:
 
 
 async def _can_make_request() -> bool:
-    """Check if we're under the daily request limit."""
     max_daily = int(_env("AGENT_MAX_DAILY_REQUESTS", "20"))
     current = await _get_daily_request_count()
     can_proceed = current < max_daily
@@ -118,12 +114,12 @@ def _participants_from_history(history: list[tuple[str, str, datetime]]) -> list
 async def _fetch_recent_messages_by_tokens(
     channel: str, token_limit: int, limit: int = 500
 ) -> list[tuple[str, str, datetime]]:
-    """Fetch recent messages up to a token limit instead of time-based."""
     rows = await db.fetch_chat_history(channel=channel, before_iso=None, limit=limit)
+    _logger.debug("[fetch_history] Fetched %d raw rows from DB for channel=%s", len(rows), channel)
     out: list[tuple[str, str, datetime]] = []
     total_tokens = 0
 
-    for m in reversed(rows):
+    for m in rows:
         ts = datetime.fromisoformat(m["timestamp"].replace("Z", "+00:00"))
         text = m.get("text") or ""
         sender = m.get("sender") or ""
@@ -136,7 +132,11 @@ async def _fetch_recent_messages_by_tokens(
         out.append((sender, text, ts))
         total_tokens += msg_tokens
 
-    return list(reversed(out))
+    result = list(reversed(out))
+    _logger.debug("[fetch_history] Returning %d messages (total_tokens=%d)", len(result), total_tokens)
+    for i, (sender, text, ts) in enumerate(result[-5:]):
+        _logger.debug("[fetch_history] msg[%d]: sender=%s, text=%s", len(result) - 5 + i, sender, text[:100] if text else "<empty>")
+    return result
 
 
 def _parse_channels(value: str) -> list[str]:
@@ -298,7 +298,21 @@ async def _wake_listener(cfgs: list[AgentConfig], stop_event: asyncio.Event) -> 
             if message.get("type") != "message":
                 continue
             chan = message.get("channel")
+            if isinstance(chan, bytes):
+                chan = chan.decode("utf-8")
+            raw_data = message.get("data", "")
+            if isinstance(raw_data, bytes):
+                raw_data = raw_data.decode("utf-8")
+            _logger.debug("[wake_listener] Received message on %s: %s", chan, raw_data[:500] if raw_data else "<empty>")
+            try:
+                parsed = json.loads(raw_data) if raw_data else {}
+                sender = parsed.get("sender", "<unknown>")
+                text = parsed.get("text", "")
+                _logger.info("[wake_listener] Message from %s: %s", sender, text[:200] if text else "<empty>")
+            except Exception as e:
+                _logger.debug("[wake_listener] Could not parse message: %s", e)
             handlers = _CHANNEL_TO_HANDLERS.get(chan, [])
+            _logger.debug("[wake_listener] Found %d handlers for channel %s", len(handlers), chan)
 
             for h in handlers:
                 try:
@@ -699,7 +713,6 @@ TOOL_MAP["tool_query_chat"] = _tool_query_chat
 
 
 async def _tool_visitor_analytics(args: dict[str, object]) -> str:
-    """Query visitor analytics from the database."""
     visitor_ip = args.get("visitor_ip")
     start_date = args.get("start_date")
     end_date = args.get("end_date")
@@ -709,14 +722,12 @@ async def _tool_visitor_analytics(args: dict[str, object]) -> str:
 
     try:
         if summary_mode:
-            # Return aggregate summary
             result = await db.get_visitor_analytics_summary(
                 start_date=str(start_date) if start_date else None,
                 end_date=str(end_date) if end_date else None,
             )
             out = {"type": "summary", "data": result}
         else:
-            # Return individual visitor records
             rows = await db.fetch_visitor_stats(
                 visitor_ip=str(visitor_ip) if visitor_ip else None,
                 start_date=str(start_date) if start_date else None,
@@ -758,8 +769,12 @@ def _build_system_instruction(
 
 
 def _build_history_contents(history: list[tuple[str, str, datetime]]) -> list[types.Content]:
-    """Build history contents from already token-limited history."""
     contents: list[types.Content] = []
+
+    _logger.info("[gemini_build_contents] Building contents from %d history messages", len(history))
+    _logger.info("[gemini_build_contents] Last 3 messages in history:")
+    for sender, text, ts in history[-3:]:
+        _logger.info("  - %s: %s", sender, text[:100] if text else "<empty>")
 
     for sender, text, ts in history:
         role = "user" if not sender.startswith("agent:") else "model"
@@ -794,7 +809,17 @@ def _sync_generate_content(
     )
 
 
-_client = genai.Client(api_key=_env("GEMINI_API_KEY", ""))
+_client: genai.Client | None = None
+
+
+def _get_client() -> genai.Client:
+    global _client
+    if _client is None:
+        api_key = _env("GEMINI_API_KEY", "")
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY environment variable is required")
+        _client = genai.Client(api_key=api_key)
+    return _client
 
 
 async def _call_gemini_with_retry(
@@ -811,7 +836,7 @@ async def _call_gemini_with_retry(
         try:
             response = await asyncio.to_thread(
                 _sync_generate_content,
-                _client,
+                _get_client(),
                 cfg.model,
                 contents,
                 types.GenerateContentConfig(

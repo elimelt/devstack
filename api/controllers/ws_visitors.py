@@ -22,7 +22,6 @@ _logger.propagate = False
 
 
 async def _handle_analytics_batch(data: dict, client_ip: str) -> None:
-    """Handle an analytics.batch message containing click events."""
     payload = data.get("payload", {})
     topic = payload.get("topic")
     events = payload.get("events", [])
@@ -121,14 +120,11 @@ async def websocket_visitors(websocket: WebSocket) -> None:
             if data == "pong":
                 continue
 
-            # Try to parse as JSON for analytics.batch messages
             try:
                 msg = json.loads(data)
                 if isinstance(msg, dict) and msg.get("type") == "analytics.batch":
-                    # Fire-and-forget: don't block the message loop
                     asyncio.create_task(_handle_analytics_batch(msg, client_ip))
             except (json.JSONDecodeError, TypeError):
-                # Not JSON, ignore
                 pass
     except WebSocketDisconnect:
         pass

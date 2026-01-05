@@ -1,8 +1,3 @@
-"""Augment agent runner for internal API.
-
-Starts an Augment chat agent that reads from and writes to chat channels.
-"""
-
 import asyncio
 import logging
 import os
@@ -35,12 +30,12 @@ def _estimate_tokens(text: str) -> int:
 async def _fetch_recent_messages_by_tokens(
     channel: str, token_limit: int, limit: int = 500
 ) -> list[tuple[str, str, datetime]]:
-    """Fetch recent messages up to a token limit."""
     rows = await db.fetch_chat_history(channel=channel, before_iso=None, limit=limit)
+    _logger.debug("[augment_fetch] Fetched %d raw rows from DB for channel=%s", len(rows), channel)
     out: list[tuple[str, str, datetime]] = []
     total_tokens = 0
 
-    for m in reversed(rows):
+    for m in rows:
         ts = datetime.fromisoformat(m["timestamp"].replace("Z", "+00:00"))
         text = m.get("text") or ""
         sender = m.get("sender") or ""
@@ -50,11 +45,14 @@ async def _fetch_recent_messages_by_tokens(
         out.append((sender, text, ts))
         total_tokens += msg_tokens
 
-    return list(reversed(out))
+    result = list(reversed(out))
+    _logger.debug("[augment_fetch] Returning %d messages (total_tokens=%d)", len(result), total_tokens)
+    for i, (sender, text, ts) in enumerate(result[-5:]):
+        _logger.debug("[augment_fetch] msg[%d]: sender=%s, text=%s", len(result) - 5 + i, sender, text[:100] if text else "<empty>")
+    return result
 
 
 def _build_prompt(channel: str, history: list[tuple[str, str, datetime]], sender: str) -> str:
-    """Build a prompt for the Augment AI model."""
     lines = [f"You are an AI assistant named '{sender}' participating in the #{channel} chat channel."]
     lines.append("")
     lines.append("IMPORTANT RULES:")
@@ -71,11 +69,15 @@ def _build_prompt(channel: str, history: list[tuple[str, str, datetime]], sender
         lines.append(f"[{ts_str}] {msg_sender}: {text}")
     lines.append("")
     lines.append("Write your next message to the chat:")
-    return "\n".join(lines)
+    prompt = "\n".join(lines)
+    _logger.debug("[augment_build_prompt] Built prompt with %d history messages, len=%d", len(history), len(prompt))
+    _logger.info("[augment_build_prompt] Last 3 messages in history:")
+    for msg_sender, text, ts in history[-3:]:
+        _logger.info("  - %s: %s", msg_sender, text[:100] if text else "<empty>")
+    return prompt
 
 
 async def _run_augment_agent_loop(stop_event: asyncio.Event) -> None:
-    """Main loop for the Augment agent."""
     api_token = _env("AUGMENT_API_TOKEN", "")
     if not api_token:
         _logger.info("AUGMENT_API_TOKEN not set; augment agent disabled")
@@ -96,16 +98,15 @@ async def _run_augment_agent_loop(stop_event: asyncio.Event) -> None:
     first_run = True
     while not stop_event.is_set():
         try:
-            # Sleep first, except on first run
             if not first_run:
                 sleep_time = random.randint(min_sleep, max_sleep)
                 _logger.debug("[%s] Sleeping for %ds", sender, sleep_time)
 
                 try:
                     await asyncio.wait_for(stop_event.wait(), timeout=sleep_time)
-                    break  # stop_event was set
+                    break
                 except asyncio.TimeoutError:
-                    pass  # Normal timeout, continue
+                    pass
             first_run = False
 
             if state.event_bus is None:
@@ -122,7 +123,6 @@ async def _run_augment_agent_loop(stop_event: asyncio.Event) -> None:
 
             prompt = _build_prompt(channel, history, sender)
 
-            # Call Augment API synchronously in a thread
             text = await asyncio.to_thread(_call_augment_sync, api_token, model, prompt)
 
             if text:
@@ -137,24 +137,17 @@ async def _run_augment_agent_loop(stop_event: asyncio.Event) -> None:
             await asyncio.sleep(5)
 
 
-# All tools to disable for chat-only mode
 _ALL_TOOLS = [
-    # Core Tools
     "codebase-retrieval", "remove-files", "save-file", "apply_patch",
     "str-replace-editor", "view",
-    # Process Tools
     "launch-process", "kill-process", "read-process", "write-process", "list-processes",
-    # Integration Tools
     "web-search", "github-api", "web-fetch",
-    # Task Management
     "view_tasklist", "reorganize_tasklist", "update_tasks", "add_tasks",
-    # Advanced Tools
     "sub-agent",
 ]
 
 
 def _call_augment_sync(api_token: str, model: str, prompt: str) -> str | None:
-    """Call Augment API synchronously (chat-only, no tools)."""
     try:
         from auggie_sdk import Auggie
         _logger.debug("Creating Auggie client with model=%s (no tools)", model)
@@ -162,7 +155,7 @@ def _call_augment_sync(api_token: str, model: str, prompt: str) -> str | None:
             model=model,
             api_key=api_token,
             timeout=300,
-            removed_tools=_ALL_TOOLS,  # Disable all tools for chat-only
+            removed_tools=_ALL_TOOLS,
         )
         _logger.debug("Calling Auggie.run with prompt len=%d", len(prompt))
         response = client.run(prompt, return_type=str)
@@ -175,7 +168,6 @@ def _call_augment_sync(api_token: str, model: str, prompt: str) -> str | None:
 
 
 async def start_augment_agent(stop_event: asyncio.Event) -> list[asyncio.Task]:
-    """Start the Augment agent and return its task."""
     api_token = _env("AUGMENT_API_TOKEN", "")
     if not api_token:
         _logger.info("AUGMENT_API_TOKEN not set; skipping augment agent")

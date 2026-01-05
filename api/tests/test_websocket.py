@@ -60,7 +60,6 @@ def test_websocket_join_broadcast_and_leave(client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_handle_analytics_batch_with_clicks(monkeypatch):
-    """Test _handle_analytics_batch processes click events correctly."""
     captured_calls = []
 
     async def mock_insert(events, client_ip):
@@ -89,7 +88,6 @@ async def test_handle_analytics_batch_with_clicks(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_handle_analytics_batch_unknown_topic(monkeypatch):
-    """Test _handle_analytics_batch ignores unknown topics."""
     mock_insert = AsyncMock(return_value=0)
     monkeypatch.setattr(ws_visitors.db, "insert_click_events", mock_insert)
 
@@ -103,13 +101,11 @@ async def test_handle_analytics_batch_unknown_topic(monkeypatch):
 
     await _handle_analytics_batch(data, "192.168.1.51")
 
-    # insert_click_events should NOT be called for unknown topic
     mock_insert.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_handle_analytics_batch_empty_events(monkeypatch):
-    """Test _handle_analytics_batch ignores empty events array."""
     mock_insert = AsyncMock(return_value=0)
     monkeypatch.setattr(ws_visitors.db, "insert_click_events", mock_insert)
 
@@ -123,13 +119,11 @@ async def test_handle_analytics_batch_empty_events(monkeypatch):
 
     await _handle_analytics_batch(data, "192.168.1.52")
 
-    # insert_click_events should NOT be called for empty events
     mock_insert.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_handle_analytics_batch_database_error(monkeypatch):
-    """Test _handle_analytics_batch handles database errors gracefully."""
     mock_insert = AsyncMock(side_effect=Exception("Database connection failed"))
     monkeypatch.setattr(ws_visitors.db, "insert_click_events", mock_insert)
 
@@ -141,15 +135,12 @@ async def test_handle_analytics_batch_database_error(monkeypatch):
         },
     }
 
-    # Should not raise an exception
     await _handle_analytics_batch(data, "192.168.1.53")
 
-    # The mock was called (and raised an exception, which was caught)
     mock_insert.assert_called_once()
 
 
 def test_websocket_non_json_message_ignored(client, monkeypatch):
-    """Test that non-JSON messages (other than 'pong') are safely ignored."""
     headers = {"x-forwarded-for": "192.168.1.52"}
 
     class DummyPubSub:
@@ -176,11 +167,9 @@ def test_websocket_non_json_message_ignored(client, monkeypatch):
     monkeypatch.setattr(ws_visitors.db, "insert_click_events", mock_insert)
 
     with client.websocket_connect("/ws/visitors", headers=headers) as ws:
-        # Send various non-JSON messages
         ws.send_text("hello world")
         ws.send_text("not valid json {{{")
-        ws.send_text("pong")  # This is the expected keepalive response
+        ws.send_text("pong")
         time.sleep(0.1)
 
-    # Nothing should crash, and insert should not be called
     mock_insert.assert_not_called()

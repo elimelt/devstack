@@ -11,7 +11,7 @@ router = APIRouter()
 
 class SoftDeleteRequest(BaseModel):
     channel: str | None = None
-    before: str | None = None  # ISO8601
+    before: str | None = None
 
 
 @router.post("/admin/chat/soft_delete")

@@ -72,7 +72,6 @@ async def compute_visitor_stats(
             if ip in active_sessions:
                 join_time = active_sessions.pop(ip)
                 duration = (timestamp - join_time).total_seconds()
-                # Cap at 24h to handle orphaned sessions without matching leave events
                 duration = min(duration, 86400)
                 visitor_sessions[ip].append({
                     "join_time": join_time,

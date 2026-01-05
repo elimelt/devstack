@@ -1,3 +1,4 @@
+import logging
 import re
 import secrets
 from datetime import UTC, datetime
@@ -5,6 +6,8 @@ from datetime import UTC, datetime
 from api import db
 from api.bus import EventBus
 from api.events import ChatMessageEvent
+
+_logger = logging.getLogger("api.producers.chat_producer")
 
 _REPLY_RE = re.compile(r"^\s*REPLY:\s*([A-Za-z0-9_-]{4,32})\s*\n", re.IGNORECASE)
 
@@ -37,7 +40,9 @@ def build_chat_message(channel: str, sender: str, text: str) -> ChatMessageEvent
 
 
 async def publish_chat_message(event_bus: EventBus, channel: str, event: ChatMessageEvent) -> None:
+    _logger.debug("[publish_chat] Publishing to Redis channel=%s sender=%s", channel, event.get("sender"))
     await event_bus.publish_chat(channel, event)
+    _logger.debug("[publish_chat] Published to Redis, inserting to DB")
     try:
         await db.insert_chat_message(
             channel,
@@ -47,8 +52,10 @@ async def publish_chat_message(event_bus: EventBus, channel: str, event: ChatMes
             message_id=event.get("id"),
             reply_to=event.get("reply_to"),
         )
+        _logger.debug("[publish_chat] Inserted message to DB")
         from api.bus import EventBus as _Bus
 
         await db.insert_event(_Bus.chat_channel(channel), "chat_message", event, event["timestamp"])
-    except Exception:
-        pass
+        _logger.debug("[publish_chat] Inserted event to DB")
+    except Exception as e:
+        _logger.error("[publish_chat] Error inserting to DB: %s", e)

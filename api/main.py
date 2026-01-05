@@ -27,6 +27,8 @@ from api.controllers.chat_history import router as chat_history_router
 from api.controllers.events_history import router as events_history_router
 from api.controllers.example import router as example_router
 from api.controllers.health import router as health_router
+from api.controllers.notes import router as notes_router
+from api.controllers.notes_search import router as notes_search_router
 from api.controllers.system import router as system_router
 from api.controllers.visitor_analytics import router as visitor_analytics_router
 from api.controllers.visitors import router as visitors_router
@@ -115,7 +117,6 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         stop_event = asyncio.Event()
         agent_tasks = await start_agents(stop_event)
 
-    # Start visitor analytics scheduler
     analytics_tasks: list[asyncio.Task] = []
     enable_analytics = os.getenv("ENABLE_ANALYTICS_SCHEDULER", "1") == "1"
     if enable_analytics and enable_db:
@@ -178,5 +179,7 @@ app.include_router(events_history_router)
 app.include_router(visitor_analytics_router)
 app.include_router(analytics_clicks_router)
 app.include_router(when2meet_router, prefix="/w2m")
+app.include_router(notes_router)
+app.include_router(notes_search_router)
 
 Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)

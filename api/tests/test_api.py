@@ -18,21 +18,23 @@ def test_example(client):
     assert "timestamp" in data
 
 
-def test_cache_set_and_get(client):
+def test_cache_set(internal_client):
     key = "greeting"
     payload = {"value": "hello", "ttl": 5}
-    res_set = client.post(f"/cache/{key}", json=payload)
+    res_set = internal_client.post(f"/cache/{key}", json=payload)
     assert res_set.status_code == 200
     body_set = res_set.json()
     assert body_set["success"] is True
     assert body_set["key"] == key
     assert body_set["value"] == payload["value"]
 
+
+def test_cache_get(client):
+    key = "nonexistent"
     res_get = client.get(f"/cache/{key}")
     assert res_get.status_code == 200
     body_get = res_get.json()
-    assert body_get["found"] is True
-    assert body_get["value"] == payload["value"]
+    assert body_get["found"] is False
 
 
 def test_visitors_empty(client):
