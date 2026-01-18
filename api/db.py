@@ -1,13 +1,21 @@
 import json
+import logging
 import os
 import secrets
 import string
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 
 import psycopg
 from psycopg import errors as pg_errors
 from psycopg.types.json import Json
+from psycopg_pool import AsyncConnectionPool
+
+_logger = logging.getLogger(__name__)
+
+# Global connection pool
+_pool: AsyncConnectionPool | None = None
 
 
 def _dsn_from_env() -> str:
@@ -22,16 +30,47 @@ def _dsn_from_env() -> str:
 
 
 async def init_pool() -> None:
+    global _pool
+    if _pool is not None:
+        return
+    dsn = _dsn_from_env()
+    min_size = int(os.getenv("POSTGRES_POOL_MIN_SIZE", "2"))
+    max_size = int(os.getenv("POSTGRES_POOL_MAX_SIZE", "10"))
+    _pool = AsyncConnectionPool(
+        dsn,
+        min_size=min_size,
+        max_size=max_size,
+        open=False,
+    )
+    await _pool.open()
+    _logger.info(f"Database connection pool initialized (min={min_size}, max={max_size})")
     await _ensure_schema()
 
 
 async def close_pool() -> None:
-    return
+    global _pool
+    if _pool is not None:
+        await _pool.close()
+        _pool = None
+        _logger.info("Database connection pool closed")
+
+
+@asynccontextmanager
+async def _get_connection(autocommit: bool = True):
+    global _pool
+    if _pool is not None:
+        async with _pool.connection() as conn:
+            if autocommit:
+                await conn.set_autocommit(True)
+            yield conn
+    else:
+        dsn = _dsn_from_env()
+        async with await psycopg.AsyncConnection.connect(dsn, autocommit=autocommit) as conn:
+            yield conn
 
 
 async def _ensure_schema() -> None:
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         await conn.execute(
             """
             CREATE TABLE IF NOT EXISTS chat_messages (
@@ -264,8 +303,7 @@ async def insert_chat_message(
     reply_to: str | None = None,
 ) -> None:
     ts = datetime.fromisoformat(ts_iso.replace("Z", "+00:00"))
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         try:
             await conn.execute(
                 "INSERT INTO chat_messages (channel, sender, text, ts, message_id, reply_to) VALUES (%s, %s, %s, %s, %s, %s)",
@@ -281,8 +319,7 @@ async def insert_chat_message(
 
 async def insert_event(topic: str, event_type: str, payload: dict, ts_iso: str) -> None:
     ts = datetime.fromisoformat(ts_iso.replace("Z", "+00:00"))
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         await conn.execute(
             "INSERT INTO events (topic, type, ts, payload) VALUES (%s, %s, %s, %s)",
             (topic, event_type, ts, Json(payload)),
@@ -297,8 +334,7 @@ async def fetch_chat_history(
         if before_iso
         else datetime.now(UTC)
     )
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         try:
             rows = await conn.execute(
                 "SELECT channel, sender, text, ts, message_id, reply_to FROM chat_messages WHERE channel=%s AND ts < %s AND deleted_at IS NULL ORDER BY ts DESC LIMIT %s",
@@ -351,7 +387,6 @@ async def fetch_events(
         if before_iso
         else datetime.now(UTC)
     )
-    dsn = _dsn_from_env()
     clauses = ["ts < %s"]
     params: list[Any] = [before_ts]
     if topic:
@@ -363,7 +398,7 @@ async def fetch_events(
     where = " AND ".join(clauses)
     sql = f"SELECT topic, type, ts, payload FROM events WHERE {where} ORDER BY ts DESC LIMIT %s"
     params.append(limit)
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         rows = await conn.execute(sql, tuple(params))
         out: list[dict[str, Any]] = []
         async for row in rows:
@@ -382,7 +417,6 @@ async def fetch_events(
 async def soft_delete_chat_history(
     channel: str | None = None, before_iso: str | None = None
 ) -> int:
-    dsn = _dsn_from_env()
     conditions: list[str] = ["deleted_at IS NULL"]
     params: list[Any] = []
     if channel:
@@ -395,7 +429,7 @@ async def soft_delete_chat_history(
     where = " AND ".join(conditions) if conditions else "TRUE"
     sql = f"UPDATE chat_messages SET deleted_at = %s WHERE {where} RETURNING id"
     now_ts = datetime.now(UTC)
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         rows = await conn.execute(sql, tuple([now_ts] + params))
         count = 0
         async for _ in rows:
@@ -415,9 +449,8 @@ async def w2m_create_event(
     description: str | None = None,
     creator_name: str | None = None,
 ) -> dict[str, Any]:
-    dsn = _dsn_from_env()
     now = datetime.now(UTC)
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         for _ in range(10):
             event_id = _generate_event_id()
             try:
@@ -449,8 +482,7 @@ async def w2m_create_event(
 
 
 async def w2m_get_event(event_id: str) -> dict[str, Any] | None:
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         rows = await conn.execute(
             "SELECT id, name, description, dates, time_slots, created_at, creator_name FROM w2m_events WHERE id = %s",
             (event_id,),
@@ -470,8 +502,7 @@ async def w2m_get_event(event_id: str) -> dict[str, Any] | None:
 
 
 async def w2m_get_availabilities(event_id: str) -> list[dict[str, Any]]:
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         rows = await conn.execute(
             "SELECT participant_name, available_slots, created_at, updated_at FROM w2m_availabilities WHERE event_id = %s",
             (event_id,),
@@ -490,8 +521,7 @@ async def w2m_get_availabilities(event_id: str) -> list[dict[str, Any]]:
 
 
 async def w2m_get_availability(event_id: str, participant_name: str) -> dict[str, Any] | None:
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         row = await (
             await conn.execute(
                 "SELECT available_slots, password_hash, created_at, updated_at FROM w2m_availabilities WHERE event_id = %s AND participant_name = %s",
@@ -514,9 +544,8 @@ async def w2m_upsert_availability(
     available_slots: list[str],
     password_hash: str | None = None,
 ) -> dict[str, Any]:
-    dsn = _dsn_from_env()
     now = datetime.now(UTC)
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         if password_hash is not None:
             await conn.execute(
                 """INSERT INTO w2m_availabilities (event_id, participant_name, available_slots, password_hash, created_at, updated_at)
@@ -555,9 +584,8 @@ async def upsert_visitor_stats(
     location_city: str | None = None,
 ) -> dict[str, Any]:
     """Insert or update visitor statistics for a given IP and time period."""
-    dsn = _dsn_from_env()
     now = datetime.now(UTC)
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         await conn.execute(
             """
             INSERT INTO visitor_stats (
@@ -619,7 +647,6 @@ async def fetch_visitor_stats(
     limit: int = 100,
 ) -> list[dict[str, Any]]:
     """Fetch visitor statistics with optional filters."""
-    dsn = _dsn_from_env()
     clauses: list[str] = []
     params: list[Any] = []
 
@@ -651,7 +678,7 @@ async def fetch_visitor_stats(
     """
     params.append(limit)
 
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         rows = await conn.execute(sql, tuple(params))
         result: list[dict[str, Any]] = []
         async for row in rows:
@@ -680,7 +707,6 @@ async def fetch_visitor_events_for_analytics(
     end_time: datetime,
 ) -> list[dict[str, Any]]:
     """Fetch visitor join/leave events from the events table for analytics processing."""
-    dsn = _dsn_from_env()
     sql = """
         SELECT ts, type, payload
         FROM events
@@ -689,7 +715,7 @@ async def fetch_visitor_events_for_analytics(
           AND ts >= %s AND ts < %s
         ORDER BY ts ASC
     """
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         rows = await conn.execute(sql, (start_time, end_time))
         result: list[dict[str, Any]] = []
         async for row in rows:
@@ -708,7 +734,6 @@ async def get_visitor_analytics_summary(
     end_date: str | None = None,
 ) -> dict[str, Any]:
     """Get aggregate summary of visitor analytics."""
-    dsn = _dsn_from_env()
     clauses: list[str] = []
     params: list[Any] = []
 
@@ -734,7 +759,7 @@ async def get_visitor_analytics_summary(
         WHERE {where}
     """
 
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         rows = await conn.execute(sql, tuple(params))
         row = await rows.fetchone()
         if not row:
@@ -768,9 +793,8 @@ async def insert_click_events(events: list[dict[str, Any]], client_ip: str) -> i
     if not events:
         return 0
 
-    dsn = _dsn_from_env()
     inserted = 0
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         for event in events:
             ts_ms = event.get("ts")
             if ts_ms and isinstance(ts_ms, int | float):
@@ -797,7 +821,6 @@ async def fetch_click_events(
     limit: int = 100,
 ) -> list[dict[str, Any]]:
     """Fetch click events with optional filters."""
-    dsn = _dsn_from_env()
     clauses: list[str] = ["topic = 'clicks'", "type = 'click'"]
     params: list[Any] = []
 
@@ -826,7 +849,7 @@ async def fetch_click_events(
     """
     params.append(limit)
 
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         rows = await conn.execute(sql, tuple(params))
         result: list[dict[str, Any]] = []
         async for row in rows:
@@ -840,8 +863,7 @@ async def fetch_click_events(
 
 async def notes_get_or_create_category(name: str) -> int:
     """Get or create a category by name, returns the category id."""
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         row = await (await conn.execute(
             "SELECT id FROM notes_categories WHERE name = %s", (name,)
         )).fetchone()
@@ -855,8 +877,7 @@ async def notes_get_or_create_category(name: str) -> int:
 
 async def notes_get_or_create_tag(name: str) -> int:
     """Get or create a tag by name, returns the tag id."""
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         row = await (await conn.execute(
             "SELECT id FROM notes_tags WHERE name = %s", (name,)
         )).fetchone()
@@ -878,10 +899,9 @@ async def notes_upsert_document(
     tags: list[str] | None = None,
 ) -> dict[str, Any]:
     """Insert or update a notes document."""
-    dsn = _dsn_from_env()
     now = datetime.now(UTC)
 
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         category_id = None
         if category_name:
             cat_row = await (await conn.execute(
@@ -953,8 +973,7 @@ async def notes_delete_documents_not_in(file_paths: list[str]) -> int:
     """Delete documents whose file_path is not in the provided list. Returns count deleted."""
     if not file_paths:
         return 0
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         placeholders = ", ".join(["%s"] * len(file_paths))
         result = await conn.execute(
             f"DELETE FROM notes_documents WHERE file_path NOT IN ({placeholders}) RETURNING id",
@@ -974,7 +993,6 @@ async def notes_fetch_documents(
     offset: int = 0,
 ) -> list[dict[str, Any]]:
     """Fetch documents with optional filters, returns metadata without content."""
-    dsn = _dsn_from_env()
 
     clauses: list[str] = []
     params: list[Any] = []
@@ -1002,7 +1020,7 @@ async def notes_fetch_documents(
     """
     params.extend([limit, offset])
 
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         rows = await conn.execute(sql, tuple(params))
         result: list[dict[str, Any]] = []
         async for row in rows:
@@ -1030,7 +1048,6 @@ async def notes_count_documents(
     tag_id: int | None = None,
 ) -> int:
     """Count documents with optional filters."""
-    dsn = _dsn_from_env()
 
     clauses: list[str] = []
     params: list[Any] = []
@@ -1054,15 +1071,14 @@ async def notes_count_documents(
         WHERE {where}
     """
 
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         row = await (await conn.execute(sql, tuple(params))).fetchone()
         return row[0] if row else 0
 
 
 async def notes_get_document_by_id(doc_id: int) -> dict[str, Any] | None:
     """Get a single document by ID, including full content."""
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         row = await (await conn.execute(
             """
             SELECT d.id, d.file_path, d.title, c.name as category, d.description, d.content, d.last_modified, d.git_commit_sha
@@ -1098,8 +1114,7 @@ async def notes_get_document_by_id(doc_id: int) -> dict[str, Any] | None:
 
 async def notes_get_all_tags() -> list[dict[str, Any]]:
     """Get all tags with document counts."""
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         rows = await conn.execute(
             """
             SELECT t.id, t.name, COUNT(dt.document_id) as doc_count
@@ -1121,8 +1136,7 @@ async def notes_get_all_tags() -> list[dict[str, Any]]:
 
 async def notes_get_all_categories() -> list[dict[str, Any]]:
     """Get all categories with document counts."""
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         rows = await conn.execute(
             """
             SELECT c.id, c.name, COUNT(d.id) as doc_count
@@ -1144,8 +1158,7 @@ async def notes_get_all_categories() -> list[dict[str, Any]]:
 
 async def notes_get_category_by_name(name: str) -> dict[str, Any] | None:
     """Get a category by name."""
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         row = await (await conn.execute(
             "SELECT id, name FROM notes_categories WHERE name = %s", (name,)
         )).fetchone()
@@ -1156,8 +1169,7 @@ async def notes_get_category_by_name(name: str) -> dict[str, Any] | None:
 
 async def notes_get_tag_by_name(name: str) -> dict[str, Any] | None:
     """Get a tag by name."""
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         row = await (await conn.execute(
             "SELECT id, name FROM notes_tags WHERE name = %s", (name,)
         )).fetchone()
@@ -1168,8 +1180,7 @@ async def notes_get_tag_by_name(name: str) -> dict[str, Any] | None:
 
 async def notes_get_last_sync_sha() -> str | None:
     """Get the most recent git commit SHA from synced documents."""
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         row = await (await conn.execute(
             "SELECT git_commit_sha FROM notes_documents WHERE git_commit_sha IS NOT NULL ORDER BY updated_at DESC LIMIT 1"
         )).fetchone()
@@ -1180,8 +1191,7 @@ async def notes_get_last_sync_sha() -> str | None:
 
 async def notes_get_docs_without_embeddings() -> list[int]:
     """Get list of document IDs that don't have embeddings."""
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         rows = await conn.execute(
             "SELECT id FROM notes_documents WHERE content_embedding IS NULL ORDER BY id"
         )
@@ -1192,10 +1202,9 @@ async def notes_update_embeddings(doc_ids: list[int], embeddings: list) -> int:
     """Update embeddings for multiple documents. Returns count updated."""
     if not doc_ids or not embeddings or len(doc_ids) != len(embeddings):
         return 0
-    dsn = _dsn_from_env()
     now = datetime.now(UTC)
     updated = 0
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         for doc_id, embedding in zip(doc_ids, embeddings):
             vec_str = f"[{','.join(map(str, embedding))}]"
             await conn.execute(
@@ -1210,8 +1219,7 @@ async def notes_get_documents_by_ids(doc_ids: list[int]) -> list[dict[str, Any]]
     """Get full documents by their IDs."""
     if not doc_ids:
         return []
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         placeholders = ", ".join(["%s"] * len(doc_ids))
         rows = await conn.execute(
             f"""
@@ -1252,7 +1260,6 @@ async def notes_fulltext_search(
     tag_ids: list[int] | None = None,
 ) -> list[dict[str, Any]]:
     """Full-text search on notes documents using ts_rank."""
-    dsn = _dsn_from_env()
     clauses: list[str] = ["d.search_vector @@ plainto_tsquery('english', %s)"]
     params: list[Any] = [query]
     joins = ""
@@ -1281,7 +1288,7 @@ async def notes_fulltext_search(
     """
     params_with_rank = [query] + params + [limit, offset]
 
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         rows = await conn.execute(sql, tuple(params_with_rank))
         result: list[dict[str, Any]] = []
         async for row in rows:
@@ -1312,7 +1319,6 @@ async def notes_vector_search(
     tag_ids: list[int] | None = None,
 ) -> list[dict[str, Any]]:
     """Vector similarity search on notes documents using cosine distance."""
-    dsn = _dsn_from_env()
     clauses: list[str] = ["d.content_embedding IS NOT NULL"]
     params: list[Any] = []
     joins = ""
@@ -1343,7 +1349,7 @@ async def notes_vector_search(
     """
     all_params = [vec_str, vec_str] + params + [limit, offset]
 
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         rows = await conn.execute(sql, tuple(all_params))
         result: list[dict[str, Any]] = []
         async for row in rows:
@@ -1368,8 +1374,7 @@ async def notes_vector_search(
 
 async def notes_get_embedding_stats() -> dict[str, Any]:
     """Get statistics about document embeddings."""
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         row = await (await conn.execute(
             """
             SELECT
@@ -1393,8 +1398,7 @@ async def notes_get_embedding_stats() -> dict[str, Any]:
 
 async def sync_job_create(commit_sha: str | None, file_paths: list[str]) -> int:
     """Create a new sync job with pending items."""
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn) as conn:
+    async with _get_connection(autocommit=False) as conn:
         async with conn.cursor() as cur:
             await cur.execute(
                 """
@@ -1419,8 +1423,7 @@ async def sync_job_create(commit_sha: str | None, file_paths: list[str]) -> int:
 
 async def sync_job_get(job_id: int) -> dict[str, Any] | None:
     """Get a sync job by ID with item counts."""
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         row = await (await conn.execute(
             """
             SELECT id, status, commit_sha, total_items, completed_items, failed_items,
@@ -1450,8 +1453,7 @@ async def sync_job_get(job_id: int) -> dict[str, Any] | None:
 
 async def sync_job_list(limit: int = 20, status: str | None = None) -> list[dict[str, Any]]:
     """List sync jobs, optionally filtered by status."""
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         if status:
             rows = await conn.execute(
                 "SELECT id, status, commit_sha, total_items, completed_items, failed_items, created_at, completed_at FROM notes_sync_jobs WHERE status = %s ORDER BY created_at DESC LIMIT %s",
@@ -1484,8 +1486,7 @@ async def sync_job_update_status(
     rate_limit_reset_at: datetime | None = None,
 ) -> None:
     """Update the status of a sync job."""
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         now = datetime.now(UTC)
         if status == "running":
             await conn.execute(
@@ -1511,8 +1512,7 @@ async def sync_job_update_status(
 
 async def sync_job_update_counts(job_id: int) -> None:
     """Update the completed/failed counts for a job from its items."""
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         await conn.execute(
             """
             UPDATE notes_sync_jobs SET
@@ -1527,8 +1527,7 @@ async def sync_job_update_counts(job_id: int) -> None:
 
 async def sync_job_get_pending_items(job_id: int, limit: int = 50) -> list[dict[str, Any]]:
     """Get pending items for a sync job."""
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         rows = await conn.execute(
             "SELECT id, file_path, retry_count FROM notes_sync_job_items WHERE job_id = %s AND status = 'pending' ORDER BY id LIMIT %s",
             (job_id, limit),
@@ -1538,8 +1537,7 @@ async def sync_job_get_pending_items(job_id: int, limit: int = 50) -> list[dict[
 
 async def sync_job_get_failed_items(job_id: int) -> list[dict[str, Any]]:
     """Get failed items for a sync job (for retry)."""
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         rows = await conn.execute(
             "SELECT id, file_path, retry_count, last_error FROM notes_sync_job_items WHERE job_id = %s AND status = 'failed' ORDER BY id",
             (job_id,),
@@ -1553,8 +1551,7 @@ async def sync_job_item_update(
     error: str | None = None,
 ) -> None:
     """Update the status of a sync job item."""
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         now = datetime.now(UTC)
         if status == "success":
             await conn.execute(
@@ -1575,8 +1572,7 @@ async def sync_job_item_update(
 
 async def sync_job_reset_failed_items(job_id: int, max_retries: int = 5) -> int:
     """Reset failed items to pending for retry (up to max_retries)."""
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         result = await conn.execute(
             "UPDATE notes_sync_job_items SET status = 'pending' WHERE job_id = %s AND status = 'failed' AND retry_count < %s",
             (job_id, max_retries),
@@ -1586,8 +1582,7 @@ async def sync_job_reset_failed_items(job_id: int, max_retries: int = 5) -> int:
 
 async def sync_job_get_resumable() -> dict[str, Any] | None:
     """Get the most recent job that can be resumed (paused or running with pending items)."""
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         row = await (await conn.execute(
             """
             SELECT j.id, j.status, j.commit_sha, j.rate_limit_reset_at
@@ -1610,8 +1605,7 @@ async def sync_job_get_resumable() -> dict[str, Any] | None:
 
 async def sync_job_get_all_completed_paths(job_id: int) -> list[str]:
     """Get all successfully completed file paths for a job."""
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         rows = await conn.execute(
             "SELECT file_path FROM notes_sync_job_items WHERE job_id = %s AND status = 'success'",
             (job_id,),
@@ -1621,8 +1615,7 @@ async def sync_job_get_all_completed_paths(job_id: int) -> list[str]:
 
 async def sync_job_get_skipped_count(job_id: int) -> int:
     """Get count of skipped items (exceeded max retries) for a job."""
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         row = await (await conn.execute(
             "SELECT COUNT(*) FROM notes_sync_job_items WHERE job_id = %s AND status = 'skipped'",
             (job_id,),
@@ -1644,8 +1637,7 @@ async def sync_job_list_all_failed_items(
     Returns:
         List of failed items with job info
     """
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         if job_id:
             rows = await conn.execute(
                 """
@@ -1698,8 +1690,7 @@ async def sync_job_item_reset_to_pending(item_id: int) -> bool:
     Returns:
         True if item was reset, False if not found or not in failed/skipped status
     """
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         result = await conn.execute(
             """
             UPDATE notes_sync_job_items
@@ -1722,8 +1713,7 @@ async def sync_job_item_skip(item_id: int, reason: str | None = None) -> bool:
     Returns:
         True if item was skipped, False if not found
     """
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         error_msg = reason or "Manually skipped"
         result = await conn.execute(
             """
@@ -1746,8 +1736,7 @@ async def sync_job_item_delete(item_id: int) -> bool:
     Returns:
         True if item was deleted, False if not found
     """
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         result = await conn.execute(
             "DELETE FROM notes_sync_job_items WHERE id = %s",
             (item_id,),
@@ -1766,8 +1755,7 @@ async def sync_job_reset_all_failed(job_id: int, include_skipped: bool = False) 
     Returns:
         Number of items reset
     """
-    dsn = _dsn_from_env()
-    async with await psycopg.AsyncConnection.connect(dsn, autocommit=True) as conn:
+    async with _get_connection() as conn:
         if include_skipped:
             result = await conn.execute(
                 """
