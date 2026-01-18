@@ -107,6 +107,12 @@ def _build_prompt(channel: str, history: list[tuple[str, str, datetime]], sender
     lines.append("- Challenge a shared assumption the group hasn't questioned")
     lines.append("- Zoom out to broader implications or zoom in to specific mechanisms")
 
+    lines.append("\n## AVAILABLE TOOLS")
+    lines.append("You have access to these tools to enhance your contributions:")
+    lines.append("- **web-search**: Search the web for current information, facts, or research")
+    lines.append("- **web-fetch**: Fetch and read content from a specific URL")
+    lines.append("Use these tools proactively when they would add value - cite sources, verify claims, or bring in external knowledge.")
+
     lines.append("\n## RECENT CONVERSATION (oldest first):")
     for msg_sender, text, ts in history[-200:]:
         ts_str = ts.astimezone(UTC).isoformat()
@@ -192,25 +198,26 @@ async def _run_augment_agent_loop(stop_event: asyncio.Event, agent_index: int = 
             await asyncio.sleep(5)
 
 
-_ALL_TOOLS = [
+_UNSAFE_TOOLS = [
     "codebase-retrieval", "remove-files", "save-file", "apply_patch",
     "str-replace-editor", "view",
     "launch-process", "kill-process", "read-process", "write-process", "list-processes",
-    "web-search", "github-api", "web-fetch",
+    "github-api",
     "view_tasklist", "reorganize_tasklist", "update_tasks", "add_tasks",
     "sub-agent",
+    "linear",
 ]
 
 
 def _call_augment_sync(api_token: str, model: str, prompt: str) -> str | None:
     try:
         from auggie_sdk import Auggie
-        _logger.debug("Creating Auggie client with model=%s (no tools)", model)
+        _logger.debug("Creating Auggie client with model=%s, enabled tools: web-search, web-fetch", model)
         client = Auggie(
             model=model,
             api_key=api_token,
             timeout=300,
-            removed_tools=_ALL_TOOLS,
+            removed_tools=_UNSAFE_TOOLS,
         )
         _logger.debug("Calling Auggie.run with prompt len=%d", len(prompt))
         response = client.run(prompt, return_type=str)
