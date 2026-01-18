@@ -3,11 +3,16 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 
 from api import db
+from api.models.analytics import (
+    VisitorAnalyticsByIdResponse,
+    VisitorAnalyticsResponse,
+    VisitorAnalyticsSummaryResponse,
+)
 
-router = APIRouter()
+router = APIRouter(tags=["visitors"])
 
 
-@router.get("/visitor-analytics")
+@router.get("/visitor-analytics", response_model=VisitorAnalyticsResponse)
 async def get_visitor_analytics(
     visitor_ip: str | None = Query(
         None,
@@ -66,7 +71,7 @@ async def get_visitor_analytics(
         ) from e
 
 
-@router.get("/visitor-analytics/summary")
+@router.get("/visitor-analytics/summary", response_model=VisitorAnalyticsSummaryResponse)
 async def get_visitor_analytics_summary(
     start_date: str | None = Query(
         None,
@@ -98,7 +103,7 @@ async def get_visitor_analytics_summary(
         ) from e
 
 
-@router.get("/visitor-analytics/{visitor_id}")
+@router.get("/visitor-analytics/{visitor_id}", response_model=VisitorAnalyticsByIdResponse)
 async def get_visitor_analytics_by_id(
     visitor_id: str,
     start_date: str | None = Query(None, description="Filter by start date (ISO8601)"),

@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-router = APIRouter()
+router = APIRouter(tags=["augment"])
 
 _ALL_TOOLS = [
     "launch-process",

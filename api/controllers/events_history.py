@@ -4,7 +4,7 @@ from fastapi import APIRouter, Query
 
 from api import db
 
-router = APIRouter()
+router = APIRouter(tags=["events"])
 
 
 @router.get("/events")

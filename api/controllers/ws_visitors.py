@@ -9,7 +9,7 @@ from api import db, state
 from api.producers.visitor_producer import heartbeat as hb
 from api.producers.visitor_producer import join_visitor, leave_visitor
 
-router = APIRouter()
+router = APIRouter(tags=["visitors"])
 
 _logger = logging.getLogger("api.ws.visitors")
 if not _logger.handlers:
@@ -131,12 +131,31 @@ async def websocket_visitors(websocket: WebSocket) -> None:
     finally:
         update_task.cancel()
         heartbeat_task.cancel()
-        await pubsub.unsubscribe("visitor_updates")
-        if hasattr(pubsub, "aclose"):
-            await pubsub.aclose()
-        else:
-            await pubsub.close()
-        await leave_visitor(state.redis_client, state.event_bus, client_ip, visitor_id)
+
+        # Cleanup pubsub with error handling
+        try:
+            await asyncio.wait_for(pubsub.unsubscribe("visitor_updates"), timeout=2.0)
+        except asyncio.TimeoutError:
+            _logger.warning("Timeout unsubscribing from visitor_updates")
+        except Exception as e:
+            _logger.warning("Error unsubscribing: %s", e)
+
+        try:
+            if hasattr(pubsub, "aclose"):
+                await asyncio.wait_for(pubsub.aclose(), timeout=2.0)
+            else:
+                await asyncio.wait_for(pubsub.close(), timeout=2.0)
+        except asyncio.TimeoutError:
+            _logger.warning("Timeout closing pubsub connection")
+        except Exception as e:
+            _logger.warning("Error closing pubsub: %s", e)
+
+        # Continue with visitor leave
+        try:
+            await leave_visitor(state.redis_client, state.event_bus, client_ip, visitor_id)
+        except Exception as e:
+            _logger.warning("Error in leave_visitor: %s", e)
+
         async with state.ws_visitors_lock:
             if client_ip in state.active_ws_visitors_by_ip:
                 state.active_ws_visitors_by_ip[client_ip] = max(

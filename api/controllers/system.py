@@ -4,15 +4,15 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from api import state
+from api.dependencies import OptionalRedis
 
-router = APIRouter()
+router = APIRouter(tags=["system"])
 
 
 @router.get("/system")
-async def get_system() -> dict[str, Any]:
-    if state.redis_client:
-        cached = await state.redis_client.get("system_stats")
+async def get_system(redis: OptionalRedis) -> dict[str, Any]:
+    if redis:
+        cached = await redis.get("system_stats")
         if cached:
             return json.loads(cached)
 
@@ -110,8 +110,8 @@ async def get_system() -> dict[str, Any]:
             "services": sorted(services, key=lambda x: x["name"]),
         }
 
-        if state.redis_client:
-            await state.redis_client.setex("system_stats", 5, json.dumps(response))
+        if redis:
+            await redis.setex("system_stats", 5, json.dumps(response))
 
         return response
     except subprocess.TimeoutExpired:

@@ -7,7 +7,7 @@ from api import db
 from api.dependencies import Redis
 from api.models.chat import ChatAnalyticsResponse
 
-router = APIRouter()
+router = APIRouter(tags=["chat"])
 _logger = logging.getLogger("api.controllers.chat_analytics")
 
 CACHE_KEY_PREFIX = "chat_analytics:"
