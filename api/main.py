@@ -38,7 +38,22 @@ from api.controllers.ws_visitors import router as ws_visitors_router
 from api.middleware import HTTPLogMiddleware
 from api.redis_debug import wrap_redis_client
 
-app = FastAPI(title="DevStack Public API", version="1.0.0")
+app = FastAPI(
+    title="Public API",
+    version="1.0.0",
+    swagger_ui_parameters={
+        "requestSnippetsEnabled": True,
+        "requestSnippets": {
+            "generators": {
+                "curl_bash": {"title": "cURL (bash)", "syntax": "bash"},
+                "curl_powershell": {"title": "cURL (PowerShell)", "syntax": "powershell"},
+                "curl_cmd": {"title": "cURL (CMD)", "syntax": "bash"},
+            },
+            "defaultExpanded": True,
+            "languages": None,
+        },
+    },
+)
 register_exception_handlers(app)
 
 cors_origins_raw = os.getenv("CORS_ORIGINS", "http://localhost:3000")
