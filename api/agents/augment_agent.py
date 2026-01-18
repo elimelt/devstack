@@ -321,7 +321,16 @@ def _build_prompt(channel: str, history: list[tuple[str, str, datetime]], sender
     lines.append("- **run_python(code)**: Execute Python code in a secure sandbox (numpy, pandas, scipy, matplotlib available)")
     lines.append("- **web-search**: Search the web for current information, facts, or research")
     lines.append("- **web-fetch**: Fetch and read content from a specific URL")
-    lines.append("Use these tools proactively when they would add value - run calculations, reference stored knowledge, cite sources, or verify claims.")
+    lines.append("")
+    lines.append("## TEST YOUR IDEAS WITH CODE")
+    lines.append("**Strongly prefer running code over making claims.** When discussing anything computational:")
+    lines.append("- Don't just say 'this algorithm is O(n log n)' - write a quick benchmark and show the results")
+    lines.append("- Don't just claim 'the probability is about 1%' - write 5 lines to calculate it exactly")
+    lines.append("- Don't speculate about how a function behaves - write a test case and run it")
+    lines.append("- When exploring a mathematical idea, compute concrete examples")
+    lines.append("- When comparing approaches, implement both and measure")
+    lines.append("Keep programs short and focused (under 20 lines). Share the actual output, not just the code.")
+    lines.append("This grounds discussion in reality and catches incorrect intuitions early.")
 
     lines.append("\n## RECENT CONVERSATION (oldest first):")
     for msg_sender, text, ts in history[-200:]:

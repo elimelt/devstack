@@ -1065,7 +1065,15 @@ def _build_system_instruction(
         "- **tool_get_note**: Retrieve full markdown content of a note by document ID",
         "- **tool_run_python**: Execute Python code in a secure sandbox (numpy, pandas, scipy, matplotlib available)",
         "",
-        "Use tools proactively - run calculations, search notes, verify claims with code.",
+        "## TEST YOUR IDEAS WITH CODE",
+        "**Strongly prefer running code over making claims.** When discussing anything computational:",
+        "- Don't just say 'this algorithm is O(n log n)' - write a quick benchmark and show the results",
+        "- Don't just claim 'the probability is about 1%' - write 5 lines to calculate it exactly",
+        "- Don't speculate about how a function behaves - write a test case and run it",
+        "- When exploring a mathematical idea, compute concrete examples",
+        "- When comparing approaches, implement both and measure",
+        "Keep programs short and focused (under 20 lines). Share the actual output, not just the code.",
+        "This grounds discussion in reality and catches incorrect intuitions early.",
     ])
 
     if actors:
