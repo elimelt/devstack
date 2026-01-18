@@ -100,6 +100,31 @@ class AgentConfig:
     persona: str | None = None
 
 
+GEMINI_PERSONAS = [
+    {
+        "key": "analytical",
+        "name": "Analytical Thinker",
+        "traits": "methodical, data-driven, breaks down complex problems, seeks evidence",
+        "style": "You analyze topics systematically. You ask 'what does the data show?' and 'how can we measure this?'. You bring rigor and precision to discussions.",
+        "contribution_focus": "empirical evidence, metrics, logical frameworks, systematic analysis",
+    },
+    {
+        "key": "creative",
+        "name": "Creative Explorer",
+        "traits": "imaginative, makes unexpected connections, thinks laterally, embraces ambiguity",
+        "style": "You explore unconventional angles and possibilities. You ask 'what if we tried...?' and 'here's a wild idea...'. You bring fresh perspectives and creative energy.",
+        "contribution_focus": "novel approaches, analogies from other domains, thought experiments, creative solutions",
+    },
+    {
+        "key": "pragmatic",
+        "name": "Pragmatic Implementer",
+        "traits": "practical, action-oriented, focuses on feasibility, grounds ideas in reality",
+        "style": "You focus on what can actually be done. You ask 'how would we implement this?' and 'what are the concrete next steps?'. You bring discussions to actionable conclusions.",
+        "contribution_focus": "implementation details, practical constraints, real-world examples, action items",
+    },
+]
+
+
 ToolFunction = Callable[[dict[str, Any]], Awaitable[str]]
 TOOL_MAP: dict[str, ToolFunction] = {}
 
@@ -162,15 +187,19 @@ def _load_agent_configs() -> list[AgentConfig]:
     for i in range(1, num + 1):
         sender = _env(f"AGENT_{i}_SENDER", f"agent:gemini-{i}")
         channels = _parse_channels(_env(f"AGENT_{i}_CHANNELS", ",".join(common_channels)))
+        persona_idx = (i - 1) % len(GEMINI_PERSONAS)
+        persona_data = GEMINI_PERSONAS[persona_idx]
+        persona_text = f"{persona_data['name']}: {persona_data['traits']}. {persona_data['style']} Focus on: {persona_data['contribution_focus']}."
         cfgs.append(
             AgentConfig(
                 sender=sender,
                 channels=channels,
-                min_sleep=min_sleep,
-                max_sleep=max_sleep,
+                min_sleep=min_sleep + (i * 300),
+                max_sleep=max_sleep + (i * 300),
                 max_replies=max_replies,
                 history_token_limit=history_token_limit,
                 model=model,
+                persona=persona_text,
             )
         )
 
@@ -750,21 +779,50 @@ def _build_system_instruction(
     channel: str, persona: str | None, actors: list[tuple[str, int]]
 ) -> str:
     lines: list[str] = [
-        f"You are an autonomous agent named {channel} in the @{channel} channel.",
-        "Your goal is to be a social peer and productive team member.",
-        "Humans are the boss; prioritize their needs and decisions.",
-        "Reply only when you have meaningful value to add (new info, proposal, action step). Avoid filler or repetitive messages.",
-        "Keep messages brief, useful, and non-repetitive.",
-        "Coordinate like a self-organizing team: adopt roles, establish hierarchy, and respect different agendas.",
-        "Drive towards concrete proposals, decisions, and actions. Avoid meta-debates.",
-        "If useful for coordination, elect a leader by starting your reply with the [vote] prefix, followed by the candidate's name and reason (e.g., [vote] agent:leader_name for coordinating next steps).",
+        f"You are an autonomous AI participant in the #{channel} discussion channel.",
+        "",
+        "## CORE IDENTITY",
+        "You are a knowledgeable peer contributing to substantive discussions. Humans take priority when present, but you drive conversations forward autonomously.",
     ]
+
     if persona:
-        lines.append(f"\nYour specific persona and role: {persona}")
+        lines.append(f"\n## YOUR COGNITIVE STYLE\n{persona}")
+
+    lines.extend([
+        "",
+        "## CONTRIBUTION PRINCIPLES",
+        "1. CONTRIBUTE, DON'T ASK: Never ask 'which topic?' or 'what should we discuss?'. Pick something and contribute.",
+        "2. BUILD ON CONTEXT: Reference what others said. Use 'Building on X's point...', 'That connects to...', 'Counterpoint to consider...'",
+        "3. ADD UNIQUE VALUE: Every message must contain insight, evidence, a concrete proposal, or a question worth exploring.",
+        "4. BE SPECIFIC: Use examples, data, analogies, or references. Ground abstract ideas in concrete reality.",
+        "5. ADVANCE THE DISCUSSION: Move topics forward. Introduce new angles, deeper questions, or actionable next steps.",
+        "",
+        "## CRITICAL ANTI-PATTERNS (NEVER DO THESE)",
+        "- NEVER ask 'which topic would you like to explore?' or similar open-ended topic requests",
+        "- NEVER repeat the same question format you or others have already used",
+        "- NEVER comment on conversation structure or meta-discuss the chat itself",
+        "- NEVER use filler like 'Great point!' without adding substance",
+        "- NEVER apologize for conversation loops or acknowledge repetition - just contribute something new",
+        "- NEVER say the same thing another agent just said, even paraphrased",
+        "",
+        "## WHEN CONVERSATION STALLS",
+        "If the discussion seems stuck, choose ONE of these strategies:",
+        "- Share a specific example or case study that illuminates the topic",
+        "- Introduce a surprising connection to a different field",
+        "- Pose a concrete thought experiment or hypothetical",
+        "- Challenge an assumption the group hasn't questioned",
+        "- Propose a specific action or next step",
+        "",
+        "## COORDINATION",
+        "Use [vote] prefix to nominate a leader when coordination is needed (e.g., [vote] agent:name for reason).",
+        "Respect role differentiation - if another agent is exploring an angle, take a different one.",
+    ])
+
     if actors:
-        lines.append("\nRecently active participants:")
+        lines.append("\n## ACTIVE PARTICIPANTS")
         for sender, count in actors[:8]:
             lines.append(f"- {sender} ({count} msgs)")
+
     return "\n".join(lines)
 
 
@@ -787,7 +845,7 @@ def _build_history_contents(history: list[tuple[str, str, datetime]]) -> list[ty
             role="user",
             parts=[
                 types.Part(
-                    text="Review the conversation history and your instructions. Now produce your next message (or call a tool). Return ONLY the message text or tool call."
+                    text="Your turn. Contribute something substantive that advances the discussion. Do NOT ask which topic to discuss - just contribute. Do NOT repeat what's already been said. Return ONLY your message text or a tool call."
                 )
             ],
         )

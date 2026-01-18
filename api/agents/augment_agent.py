@@ -52,47 +52,97 @@ async def _fetch_recent_messages_by_tokens(
     return result
 
 
-def _build_prompt(channel: str, history: list[tuple[str, str, datetime]], sender: str) -> str:
-    lines = [f"You are an AI assistant named '{sender}' participating in the #{channel} chat channel."]
-    lines.append("")
-    lines.append("IMPORTANT RULES:")
-    lines.append("- You are here to have interesting, engaging conversations with visitors")
-    lines.append("- Do NOT comment on the conversation structure or say things like 'this is a recursive loop'")
-    lines.append("- Do NOT repeat or paraphrase what you've already said recently")
-    lines.append("- If the conversation is quiet, bring up an interesting topic, ask a question, or share something fun")
-    lines.append("- Be friendly, curious, and conversational - like a good chat room participant")
-    lines.append("- Keep responses concise (1-3 sentences usually)")
-    lines.append("")
-    lines.append("Recent messages (oldest first):")
+AUGMENT_PERSONAS = {
+    "architect": {
+        "name": "Systems Architect",
+        "traits": "analytical, sees patterns, connects disparate ideas, thinks in systems",
+        "style": "You approach topics by examining underlying structures and relationships. You ask 'how does this connect to X?' and 'what are the second-order effects?'. You synthesize ideas across domains.",
+        "topics": ["distributed systems", "emergence", "feedback loops", "architecture patterns", "complexity theory", "network effects"],
+    },
+    "challenger": {
+        "name": "Constructive Skeptic",
+        "traits": "curious, probing, plays devil's advocate, stress-tests ideas",
+        "style": "You respectfully challenge assumptions and explore edge cases. You ask 'what could go wrong?' and 'have we considered the opposite?'. You strengthen ideas through rigorous questioning.",
+        "topics": ["failure modes", "unintended consequences", "edge cases", "alternative approaches", "historical precedents", "contrarian views"],
+    },
+    "synthesizer": {
+        "name": "Bridge Builder",
+        "traits": "integrative, finds common ground, translates between perspectives, builds on others' ideas",
+        "style": "You connect different viewpoints and find synthesis. You say 'building on what X said...' and 'I see a thread connecting these ideas...'. You help the group reach deeper understanding.",
+        "topics": ["interdisciplinary connections", "practical applications", "consensus building", "real-world examples", "human factors", "implementation paths"],
+    },
+}
+
+
+def _build_prompt(channel: str, history: list[tuple[str, str, datetime]], sender: str, persona_key: str | None = None) -> str:
+    persona = AUGMENT_PERSONAS.get(persona_key) if persona_key else None
+
+    lines = [f"You are '{sender}', an autonomous AI participant in the #{channel} discussion channel."]
+
+    if persona:
+        lines.append(f"\n## YOUR ROLE: {persona['name']}")
+        lines.append(f"Core traits: {persona['traits']}")
+        lines.append(f"Conversation style: {persona['style']}")
+        lines.append(f"Topics you naturally gravitate toward: {', '.join(persona['topics'])}")
+
+    lines.append("\n## CONVERSATION PRINCIPLES")
+    lines.append("1. DRIVE FORWARD: Always advance the discussion. Introduce new angles, deeper questions, or concrete proposals.")
+    lines.append("2. BUILD ON OTHERS: Reference and extend what others have said. Use phrases like 'That connects to...', 'Building on that...'")
+    lines.append("3. BE SUBSTANTIVE: Every message should contain insight, a question worth exploring, or a concrete idea. No filler.")
+    lines.append("4. STAY GROUNDED: Use specific examples, analogies, or references. Abstract discussions should connect to concrete reality.")
+    lines.append("5. NATURAL EVOLUTION: Topics should flow organically. When a thread is exhausted, pivot to a related but fresh angle.")
+
+    lines.append("\n## ANTI-PATTERNS TO AVOID")
+    lines.append("- NEVER ask 'which topic would you like to discuss?' - just pick one and dive in")
+    lines.append("- NEVER comment on conversation structure or meta-discuss the chat itself")
+    lines.append("- NEVER repeat points already made (yours or others')")
+    lines.append("- NEVER use filler phrases like 'That's a great point!' without adding substance")
+    lines.append("- NEVER ask permission to explore a topic - just explore it")
+
+    lines.append("\n## TOPIC EVOLUTION STRATEGIES")
+    lines.append("When conversation needs fresh energy:")
+    lines.append("- Introduce a surprising connection to a different field")
+    lines.append("- Share a specific example or case study that illuminates the discussion")
+    lines.append("- Pose a thought experiment or hypothetical scenario")
+    lines.append("- Challenge a shared assumption the group hasn't questioned")
+    lines.append("- Zoom out to broader implications or zoom in to specific mechanisms")
+
+    lines.append("\n## RECENT CONVERSATION (oldest first):")
     for msg_sender, text, ts in history[-200:]:
         ts_str = ts.astimezone(UTC).isoformat()
         lines.append(f"[{ts_str}] {msg_sender}: {text}")
-    lines.append("")
-    lines.append("Write your next message to the chat:")
+
+    lines.append("\n## YOUR TURN")
+    lines.append("Write your next contribution. Be concise (1-3 sentences). Make it count.")
+
     prompt = "\n".join(lines)
-    _logger.debug("[augment_build_prompt] Built prompt with %d history messages, len=%d", len(history), len(prompt))
+    _logger.debug("[augment_build_prompt] Built prompt with %d history messages, len=%d, persona=%s", len(history), len(prompt), persona_key)
     _logger.info("[augment_build_prompt] Last 3 messages in history:")
     for msg_sender, text, ts in history[-3:]:
         _logger.info("  - %s: %s", msg_sender, text[:100] if text else "<empty>")
     return prompt
 
 
-async def _run_augment_agent_loop(stop_event: asyncio.Event) -> None:
+async def _run_augment_agent_loop(stop_event: asyncio.Event, agent_index: int = 0, persona_key: str | None = None) -> None:
     api_token = _env("AUGMENT_API_TOKEN", "")
     if not api_token:
         _logger.info("AUGMENT_API_TOKEN not set; augment agent disabled")
         return
 
-    sender = _env("AUGMENT_AGENT_SENDER", "agent:augment")
+    base_sender = _env("AUGMENT_AGENT_SENDER", "agent:augment")
+    sender = f"{base_sender}-{agent_index + 1}" if agent_index > 0 else base_sender
     channels = [c.strip() for c in _env("AUGMENT_AGENT_CHANNELS", "general").split(",") if c.strip()]
-    min_sleep = int(_env("AUGMENT_AGENT_MIN_SLEEP_SEC", "3600"))
-    max_sleep = int(_env("AUGMENT_AGENT_MAX_SLEEP_SEC", "3600"))
+    base_min_sleep = int(_env("AUGMENT_AGENT_MIN_SLEEP_SEC", "10800"))
+    base_max_sleep = int(_env("AUGMENT_AGENT_MAX_SLEEP_SEC", "10800"))
+    min_sleep = base_min_sleep + (agent_index * 600)
+    max_sleep = base_max_sleep + (agent_index * 600)
     token_limit = int(_env("AUGMENT_AGENT_HISTORY_TOKEN_LIMIT", "10000"))
     model = _env("AUGMENT_AGENT_MODEL", "sonnet4.5")
 
+    persona_name = AUGMENT_PERSONAS.get(persona_key, {}).get("name", "default") if persona_key else "default"
     _logger.info(
-        "Augment agent started sender=%s channels=%s model=%s sleep=[%ss..%ss]",
-        sender, channels, model, min_sleep, max_sleep
+        "Augment agent started sender=%s persona=%s channels=%s model=%s sleep=[%ss..%ss]",
+        sender, persona_name, channels, model, min_sleep, max_sleep
     )
 
     first_run = True
@@ -114,14 +164,14 @@ async def _run_augment_agent_loop(stop_event: asyncio.Event) -> None:
                 continue
 
             channel = random.choice(channels)
-            _logger.info("[%s] Session channel=%s", sender, channel)
+            _logger.info("[%s] Session channel=%s persona=%s", sender, channel, persona_key)
 
             history = await _fetch_recent_messages_by_tokens(channel, token_limit)
             if not history:
                 _logger.debug("[%s] No history found for channel=%s", sender, channel)
                 continue
 
-            prompt = _build_prompt(channel, history, sender)
+            prompt = _build_prompt(channel, history, sender, persona_key)
 
             text = await asyncio.to_thread(_call_augment_sync, api_token, model, prompt)
 
@@ -173,6 +223,17 @@ async def start_augment_agent(stop_event: asyncio.Event) -> list[asyncio.Task]:
         _logger.info("AUGMENT_API_TOKEN not set; skipping augment agent")
         return []
 
-    task = asyncio.create_task(_run_augment_agent_loop(stop_event))
-    return [task]
+    num_agents = int(_env("AUGMENT_AGENT_COUNT", "3"))
+    num_agents = max(1, min(num_agents, 5))
+
+    persona_keys = list(AUGMENT_PERSONAS.keys())
+
+    tasks = []
+    for i in range(num_agents):
+        persona_key = persona_keys[i % len(persona_keys)] if persona_keys else None
+        task = asyncio.create_task(_run_augment_agent_loop(stop_event, agent_index=i, persona_key=persona_key))
+        tasks.append(task)
+
+    _logger.info("Started %d Augment agents with personas: %s", len(tasks), [persona_keys[i % len(persona_keys)] for i in range(num_agents)])
+    return tasks
 
