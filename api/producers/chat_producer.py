@@ -3,8 +3,9 @@ import re
 import secrets
 from datetime import UTC, datetime
 
-from api import db
+from api import db, state
 from api.bus import EventBus
+from api.controllers.chat_analytics import invalidate_chat_analytics_cache
 from api.events import ChatMessageEvent
 
 _logger = logging.getLogger("api.producers.chat_producer")
@@ -59,3 +60,10 @@ async def publish_chat_message(event_bus: EventBus, channel: str, event: ChatMes
         _logger.debug("[publish_chat] Inserted event to DB")
     except Exception as e:
         _logger.error("[publish_chat] Error inserting to DB: %s", e)
+
+    # Invalidate analytics cache
+    if state.redis_client:
+        try:
+            await invalidate_chat_analytics_cache(state.redis_client, channel)
+        except Exception as e:
+            _logger.error("[publish_chat] Error invalidating analytics cache: %s", e)

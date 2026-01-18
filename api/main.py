@@ -18,12 +18,13 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from redis.asyncio import BlockingConnectionPool as RedisConnectionPool
 
 from api import db, state
-from api.agents.gemini_agent import start_agents
+from api.config import get_settings
+from api.errors import register_exception_handlers
 from api.batch.visitor_analytics import start_analytics_scheduler
 from api.bus import EventBus
 from api.controllers.analytics_clicks import router as analytics_clicks_router
-from api.controllers.analytics_clicks_write import router as analytics_clicks_write_router
 from api.controllers.cache import router as cache_router
+from api.controllers.chat_analytics import router as chat_analytics_router
 from api.controllers.chat_history import router as chat_history_router
 from api.controllers.events_history import router as events_history_router
 from api.controllers.example import router as example_router
@@ -40,6 +41,7 @@ from api.middleware import HTTPLogMiddleware
 from api.redis_debug import wrap_redis_client
 
 app = FastAPI(title="DevStack Public API", version="1.0.0")
+register_exception_handlers(app)
 
 cors_origins_raw = os.getenv("CORS_ORIGINS", "http://localhost:3000")
 cors_origins = [o.strip() for o in cors_origins_raw.split(",") if o.strip()]
@@ -74,26 +76,25 @@ geoip_reader = None
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     global redis_client, geoip_reader, event_bus
     stop_event: asyncio.Event | None = None
-    agent_tasks: list[asyncio.Task] = []
-    redis_host = os.getenv("REDIS_HOST", "redis")
-    redis_port = int(os.getenv("REDIS_PORT", "6379"))
-    redis_password = os.getenv("REDIS_PASSWORD", "")
+    settings = get_settings()
 
-    max_redis_conns = int(os.getenv("REDIS_MAX_CONNECTIONS", "200"))
-    pool_timeout = float(os.getenv("REDIS_POOL_TIMEOUT_SEC", "5"))
     redis_pool = RedisConnectionPool(
-        host=redis_host,
-        port=redis_port,
-        password=redis_password if redis_password else None,
-        max_connections=max_redis_conns,
-        timeout=pool_timeout,
+        host=settings.redis.host,
+        port=settings.redis.port,
+        password=settings.redis.password if settings.redis.password else None,
+        max_connections=settings.redis.max_connections,
+        timeout=settings.redis.pool_timeout_sec,
+        health_check_interval=settings.redis.health_check_interval,
+        socket_timeout=settings.redis.socket_timeout,
+        socket_connect_timeout=settings.redis.socket_connect_timeout,
+        retry_on_timeout=settings.redis.retry_on_timeout,
     )
     candidate_client = redis.Redis(connection_pool=redis_pool, decode_responses=True)
     if hasattr(candidate_client, "__await__"):
         redis_client = await candidate_client  # type: ignore[assignment]
     else:
         redis_client = candidate_client
-    if os.getenv("REDIS_DEBUG", "0") == "1":
+    if settings.debug.redis:
         logging.getLogger("api.redis").setLevel(logging.DEBUG)
         redis_logger = logging.getLogger("api.redis")
         redis_client = wrap_redis_client(redis_client, redis_logger)
@@ -113,10 +114,6 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             await db.init_pool()
         except Exception:
             pass
-    enable_agent = os.getenv("ENABLE_AGENT", "0") == "1"
-    if enable_agent:
-        stop_event = asyncio.Event()
-        agent_tasks = await start_agents(stop_event)
 
     analytics_tasks: list[asyncio.Task] = []
     enable_analytics = os.getenv("ENABLE_ANALYTICS_SCHEDULER", "1") == "1"
@@ -128,15 +125,6 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
-        if agent_tasks and stop_event:
-            stop_event.set()
-            try:
-                await asyncio.wait_for(
-                    asyncio.gather(*agent_tasks, return_exceptions=True), timeout=5
-                )
-            except Exception:
-                for t in agent_tasks:
-                    t.cancel()
         if analytics_tasks and stop_event:
             stop_event.set()
             try:
@@ -175,11 +163,11 @@ app.include_router(visitors_router)
 app.include_router(system_router)
 app.include_router(ws_visitors_router)
 app.include_router(ws_chat_router)
+app.include_router(chat_analytics_router)
 app.include_router(chat_history_router)
 app.include_router(events_history_router)
 app.include_router(visitor_analytics_router)
 app.include_router(analytics_clicks_router)
-app.include_router(analytics_clicks_write_router)
 app.include_router(when2meet_router, prefix="/w2m")
 app.include_router(notes_router)
 app.include_router(notes_search_router)
