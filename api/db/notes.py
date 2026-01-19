@@ -2,7 +2,6 @@
 
 from datetime import UTC, datetime
 from typing import Any
-import logging
 
 from api.db.core import _get_connection
 
@@ -10,28 +9,30 @@ from api.db.core import _get_connection
 async def notes_get_or_create_category(name: str) -> int:
     """Get or create a category by name, returns the category id."""
     async with _get_connection() as conn:
-        row = await (await conn.execute(
-            "SELECT id FROM notes_categories WHERE name = %s", (name,)
-        )).fetchone()
+        row = await (
+            await conn.execute("SELECT id FROM notes_categories WHERE name = %s", (name,))
+        ).fetchone()
         if row:
             return row[0]
-        row = await (await conn.execute(
-            "INSERT INTO notes_categories (name) VALUES (%s) RETURNING id", (name,)
-        )).fetchone()
+        row = await (
+            await conn.execute(
+                "INSERT INTO notes_categories (name) VALUES (%s) RETURNING id", (name,)
+            )
+        ).fetchone()
         return row[0]
 
 
 async def notes_get_or_create_tag(name: str) -> int:
     """Get or create a tag by name, returns the tag id."""
     async with _get_connection() as conn:
-        row = await (await conn.execute(
-            "SELECT id FROM notes_tags WHERE name = %s", (name,)
-        )).fetchone()
+        row = await (
+            await conn.execute("SELECT id FROM notes_tags WHERE name = %s", (name,))
+        ).fetchone()
         if row:
             return row[0]
-        row = await (await conn.execute(
-            "INSERT INTO notes_tags (name) VALUES (%s) RETURNING id", (name,)
-        )).fetchone()
+        row = await (
+            await conn.execute("INSERT INTO notes_tags (name) VALUES (%s) RETURNING id", (name,))
+        ).fetchone()
         return row[0]
 
 
@@ -50,19 +51,25 @@ async def notes_upsert_document(
     async with _get_connection() as conn:
         category_id = None
         if category_name:
-            cat_row = await (await conn.execute(
-                "SELECT id FROM notes_categories WHERE name = %s", (category_name,)
-            )).fetchone()
+            cat_row = await (
+                await conn.execute(
+                    "SELECT id FROM notes_categories WHERE name = %s", (category_name,)
+                )
+            ).fetchone()
             if cat_row:
                 category_id = cat_row[0]
             else:
-                cat_row = await (await conn.execute(
-                    "INSERT INTO notes_categories (name) VALUES (%s) RETURNING id", (category_name,)
-                )).fetchone()
+                cat_row = await (
+                    await conn.execute(
+                        "INSERT INTO notes_categories (name) VALUES (%s) RETURNING id",
+                        (category_name,),
+                    )
+                ).fetchone()
                 category_id = cat_row[0]
 
-        row = await (await conn.execute(
-            """
+        row = await (
+            await conn.execute(
+                """
             INSERT INTO notes_documents (file_path, title, category_id, description, content, last_modified, git_commit_sha, created_at, updated_at)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (file_path) DO UPDATE SET
@@ -75,28 +82,39 @@ async def notes_upsert_document(
                 updated_at = EXCLUDED.updated_at
             RETURNING id
             """,
-            (file_path, title, category_id, description, content, now, git_commit_sha, now, now),
-        )).fetchone()
+                (
+                    file_path,
+                    title,
+                    category_id,
+                    description,
+                    content,
+                    now,
+                    git_commit_sha,
+                    now,
+                    now,
+                ),
+            )
+        ).fetchone()
         doc_id = row[0]
 
-        await conn.execute(
-            "DELETE FROM notes_document_tags WHERE document_id = %s", (doc_id,)
-        )
+        await conn.execute("DELETE FROM notes_document_tags WHERE document_id = %s", (doc_id,))
 
         if tags:
             for tag_name in tags:
                 tag_name = tag_name.strip()
                 if not tag_name:
                     continue
-                tag_row = await (await conn.execute(
-                    "SELECT id FROM notes_tags WHERE name = %s", (tag_name,)
-                )).fetchone()
+                tag_row = await (
+                    await conn.execute("SELECT id FROM notes_tags WHERE name = %s", (tag_name,))
+                ).fetchone()
                 if tag_row:
                     tag_id = tag_row[0]
                 else:
-                    tag_row = await (await conn.execute(
-                        "INSERT INTO notes_tags (name) VALUES (%s) RETURNING id", (tag_name,)
-                    )).fetchone()
+                    tag_row = await (
+                        await conn.execute(
+                            "INSERT INTO notes_tags (name) VALUES (%s) RETURNING id", (tag_name,)
+                        )
+                    ).fetchone()
                     tag_id = tag_row[0]
 
                 await conn.execute(
@@ -175,16 +193,18 @@ async def notes_fetch_documents(
             )
             tags = [t[0] async for t in tag_rows]
 
-            result.append({
-                "id": row[0],
-                "file_path": row[1],
-                "title": row[2],
-                "category": row[3],
-                "description": row[4],
-                "last_modified": row[5].astimezone(UTC).isoformat() if row[5] else None,
-                "git_commit_sha": row[6],
-                "tags": tags,
-            })
+            result.append(
+                {
+                    "id": row[0],
+                    "file_path": row[1],
+                    "title": row[2],
+                    "category": row[3],
+                    "description": row[4],
+                    "last_modified": row[5].astimezone(UTC).isoformat() if row[5] else None,
+                    "git_commit_sha": row[6],
+                    "tags": tags,
+                }
+            )
         return result
 
 
@@ -224,15 +244,17 @@ async def notes_count_documents(
 async def notes_get_document_by_id(doc_id: int) -> dict[str, Any] | None:
     """Get a single document by ID, including full content."""
     async with _get_connection() as conn:
-        row = await (await conn.execute(
-            """
+        row = await (
+            await conn.execute(
+                """
             SELECT d.id, d.file_path, d.title, c.name as category, d.description, d.content, d.last_modified, d.git_commit_sha
             FROM notes_documents d
             LEFT JOIN notes_categories c ON d.category_id = c.id
             WHERE d.id = %s
             """,
-            (doc_id,),
-        )).fetchone()
+                (doc_id,),
+            )
+        ).fetchone()
 
         if not row:
             return None
@@ -270,11 +292,13 @@ async def notes_get_all_tags() -> list[dict[str, Any]]:
         )
         result: list[dict[str, Any]] = []
         async for row in rows:
-            result.append({
-                "id": row[0],
-                "name": row[1],
-                "document_count": row[2],
-            })
+            result.append(
+                {
+                    "id": row[0],
+                    "name": row[1],
+                    "document_count": row[2],
+                }
+            )
         return result
 
 
@@ -292,20 +316,22 @@ async def notes_get_all_categories() -> list[dict[str, Any]]:
         )
         result: list[dict[str, Any]] = []
         async for row in rows:
-            result.append({
-                "id": row[0],
-                "name": row[1],
-                "document_count": row[2],
-            })
+            result.append(
+                {
+                    "id": row[0],
+                    "name": row[1],
+                    "document_count": row[2],
+                }
+            )
         return result
 
 
 async def notes_get_category_by_name(name: str) -> dict[str, Any] | None:
     """Get a category by name."""
     async with _get_connection() as conn:
-        row = await (await conn.execute(
-            "SELECT id, name FROM notes_categories WHERE name = %s", (name,)
-        )).fetchone()
+        row = await (
+            await conn.execute("SELECT id, name FROM notes_categories WHERE name = %s", (name,))
+        ).fetchone()
         if not row:
             return None
         return {"id": row[0], "name": row[1]}
@@ -314,9 +340,9 @@ async def notes_get_category_by_name(name: str) -> dict[str, Any] | None:
 async def notes_get_tag_by_name(name: str) -> dict[str, Any] | None:
     """Get a tag by name."""
     async with _get_connection() as conn:
-        row = await (await conn.execute(
-            "SELECT id, name FROM notes_tags WHERE name = %s", (name,)
-        )).fetchone()
+        row = await (
+            await conn.execute("SELECT id, name FROM notes_tags WHERE name = %s", (name,))
+        ).fetchone()
         if not row:
             return None
         return {"id": row[0], "name": row[1]}
@@ -325,9 +351,11 @@ async def notes_get_tag_by_name(name: str) -> dict[str, Any] | None:
 async def notes_get_last_sync_sha() -> str | None:
     """Get the most recent git commit SHA from synced documents."""
     async with _get_connection() as conn:
-        row = await (await conn.execute(
-            "SELECT git_commit_sha FROM notes_documents WHERE git_commit_sha IS NOT NULL ORDER BY updated_at DESC LIMIT 1"
-        )).fetchone()
+        row = await (
+            await conn.execute(
+                "SELECT git_commit_sha FROM notes_documents WHERE git_commit_sha IS NOT NULL ORDER BY updated_at DESC LIMIT 1"
+            )
+        ).fetchone()
         if not row:
             return None
         return row[0]
@@ -349,7 +377,7 @@ async def notes_update_embeddings(doc_ids: list[int], embeddings: list) -> int:
     now = datetime.now(UTC)
     updated = 0
     async with _get_connection() as conn:
-        for doc_id, embedding in zip(doc_ids, embeddings):
+        for doc_id, embedding in zip(doc_ids, embeddings, strict=False):
             vec_str = f"[{','.join(map(str, embedding))}]"
             await conn.execute(
                 "UPDATE notes_documents SET content_embedding = %s::vector, embedding_updated_at = %s WHERE id = %s",
@@ -382,17 +410,19 @@ async def notes_get_documents_by_ids(doc_ids: list[int]) -> list[dict[str, Any]]
                 (row[0],),
             )
             tags = [t[0] async for t in tag_rows]
-            result.append({
-                "id": row[0],
-                "file_path": row[1],
-                "title": row[2],
-                "category": row[3],
-                "description": row[4],
-                "content": row[5],
-                "last_modified": row[6].astimezone(UTC).isoformat() if row[6] else None,
-                "git_commit_sha": row[7],
-                "tags": tags,
-            })
+            result.append(
+                {
+                    "id": row[0],
+                    "file_path": row[1],
+                    "title": row[2],
+                    "category": row[3],
+                    "description": row[4],
+                    "content": row[5],
+                    "last_modified": row[6].astimezone(UTC).isoformat() if row[6] else None,
+                    "git_commit_sha": row[7],
+                    "tags": tags,
+                }
+            )
         return result
 
 
@@ -441,17 +471,19 @@ async def notes_fulltext_search(
                 (row[0],),
             )
             tags = [t[0] async for t in tag_rows]
-            result.append({
-                "id": row[0],
-                "file_path": row[1],
-                "title": row[2],
-                "category": row[3],
-                "description": row[4],
-                "last_modified": row[5].astimezone(UTC).isoformat() if row[5] else None,
-                "git_commit_sha": row[6],
-                "rank": float(row[7]),
-                "tags": tags,
-            })
+            result.append(
+                {
+                    "id": row[0],
+                    "file_path": row[1],
+                    "title": row[2],
+                    "category": row[3],
+                    "description": row[4],
+                    "last_modified": row[5].astimezone(UTC).isoformat() if row[5] else None,
+                    "git_commit_sha": row[6],
+                    "rank": float(row[7]),
+                    "tags": tags,
+                }
+            )
         return result
 
 
@@ -502,25 +534,28 @@ async def notes_vector_search(
                 (row[0],),
             )
             tags = [t[0] async for t in tag_rows]
-            result.append({
-                "id": row[0],
-                "file_path": row[1],
-                "title": row[2],
-                "category": row[3],
-                "description": row[4],
-                "last_modified": row[5].astimezone(UTC).isoformat() if row[5] else None,
-                "git_commit_sha": row[6],
-                "similarity": float(row[7]),
-                "tags": tags,
-            })
+            result.append(
+                {
+                    "id": row[0],
+                    "file_path": row[1],
+                    "title": row[2],
+                    "category": row[3],
+                    "description": row[4],
+                    "last_modified": row[5].astimezone(UTC).isoformat() if row[5] else None,
+                    "git_commit_sha": row[6],
+                    "similarity": float(row[7]),
+                    "tags": tags,
+                }
+            )
         return result
 
 
 async def notes_get_embedding_stats() -> dict[str, Any]:
     """Get statistics about document embeddings."""
     async with _get_connection() as conn:
-        row = await (await conn.execute(
-            """
+        row = await (
+            await conn.execute(
+                """
             SELECT
                 COUNT(*) as total_docs,
                 COUNT(content_embedding) as docs_with_embeddings,
@@ -529,7 +564,8 @@ async def notes_get_embedding_stats() -> dict[str, Any]:
                 MAX(embedding_updated_at) as newest_embedding_update
             FROM notes_documents
             """
-        )).fetchone()
+            )
+        ).fetchone()
         return {
             "total_docs": row[0],
             "docs_with_embeddings": row[1],
@@ -537,4 +573,3 @@ async def notes_get_embedding_stats() -> dict[str, Any]:
             "oldest_embedding_update": row[3].astimezone(UTC).isoformat() if row[3] else None,
             "newest_embedding_update": row[4].astimezone(UTC).isoformat() if row[4] else None,
         }
-

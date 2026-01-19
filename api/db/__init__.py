@@ -12,26 +12,6 @@ from api.db.core import (
 # Backward compatibility alias
 _dsn_from_env = _get_dsn
 
-from api.db.chat import (
-    fetch_chat_analytics,
-    fetch_chat_history,
-    insert_chat_message,
-    soft_delete_chat_history,
-)
-
-from api.db.events import (
-    fetch_events,
-    insert_event,
-)
-
-from api.db.when2meet import (
-    w2m_create_event,
-    w2m_get_availabilities,
-    w2m_get_availability,
-    w2m_get_event,
-    w2m_upsert_availability,
-)
-
 from api.db.analytics import (
     fetch_click_events,
     fetch_visitor_events_for_analytics,
@@ -40,7 +20,16 @@ from api.db.analytics import (
     insert_click_events,
     upsert_visitor_stats,
 )
-
+from api.db.chat import (
+    fetch_chat_analytics,
+    fetch_chat_history,
+    insert_chat_message,
+    soft_delete_chat_history,
+)
+from api.db.events import (
+    fetch_events,
+    insert_event,
+)
 from api.db.notes import (
     notes_count_documents,
     notes_delete_documents_not_in,
@@ -49,9 +38,9 @@ from api.db.notes import (
     notes_get_all_categories,
     notes_get_all_tags,
     notes_get_category_by_name,
+    notes_get_docs_without_embeddings,
     notes_get_document_by_id,
     notes_get_documents_by_ids,
-    notes_get_docs_without_embeddings,
     notes_get_embedding_stats,
     notes_get_last_sync_sha,
     notes_get_or_create_category,
@@ -61,7 +50,6 @@ from api.db.notes import (
     notes_upsert_document,
     notes_vector_search,
 )
-
 from api.db.sync import (
     sync_job_create,
     sync_job_get,
@@ -80,6 +68,13 @@ from api.db.sync import (
     sync_job_reset_failed_items,
     sync_job_update_counts,
     sync_job_update_status,
+)
+from api.db.when2meet import (
+    w2m_create_event,
+    w2m_get_availabilities,
+    w2m_get_availability,
+    w2m_get_event,
+    w2m_upsert_availability,
 )
 
 __all__ = [
@@ -150,4 +145,3 @@ __all__ = [
     "sync_job_update_counts",
     "sync_job_update_status",
 ]
-

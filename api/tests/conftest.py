@@ -9,8 +9,7 @@ import fakeredis.aioredis as fakeredis
 import pytest
 from fastapi.testclient import TestClient
 
-from api import main
-from api import main_internal
+from api import main, main_internal
 
 
 class _AwaitableRedis:

@@ -17,13 +17,13 @@ CONTENT_MAX_CHARS = 8000
 
 def get_embedding_model() -> SentenceTransformer:
     global _model, _model_load_error
-    
+
     if _model is not None:
         return _model
-    
+
     if _model_load_error is not None:
         raise RuntimeError(f"Embedding model failed to load: {_model_load_error}")
-    
+
     try:
         logger.info(f"Loading embedding model: {MODEL_NAME}")
         _model = SentenceTransformer(MODEL_NAME)
@@ -37,13 +37,13 @@ def get_embedding_model() -> SentenceTransformer:
 
 def is_model_available() -> bool:
     global _model, _model_load_error
-    
+
     if _model is not None:
         return True
-    
+
     if _model_load_error is not None:
         return False
-    
+
     try:
         get_embedding_model()
         return True
@@ -55,12 +55,12 @@ def strip_frontmatter(content: str) -> str:
     if not content:
         return ""
 
-    frontmatter_pattern = r'^---\s*\n.*?\n---\s*\n'
+    frontmatter_pattern = r"^---\s*\n.*?\n---\s*\n"
     match = re.match(frontmatter_pattern, content, re.DOTALL)
-    
+
     if match:
-        return content[match.end():]
-    
+        return content[match.end() :]
+
     return content
 
 
@@ -100,14 +100,14 @@ async def generate_embeddings_batch(doc_ids: list[int], batch_size: int = 32) ->
     if not doc_ids:
         logger.info("No document IDs provided for embedding generation")
         return 0
-    
+
     model = get_embedding_model()
     processed_count = 0
-    
+
     for i in range(0, len(doc_ids), batch_size):
-        batch_ids = doc_ids[i:i + batch_size]
+        batch_ids = doc_ids[i : i + batch_size]
         logger.info(f"Processing embedding batch {i // batch_size + 1}: {len(batch_ids)} documents")
-        
+
         try:
             docs = await db.notes_get_documents_by_ids(batch_ids)
 
@@ -124,14 +124,13 @@ async def generate_embeddings_batch(doc_ids: list[int], batch_size: int = 32) ->
             found_ids = [doc["id"] for doc in docs]
 
             await db.notes_update_embeddings(found_ids, embeddings_list)
-            
+
             processed_count += len(docs)
             logger.info(f"Generated embeddings for {len(docs)} documents")
-            
+
         except Exception as e:
             logger.error(f"Error processing embedding batch: {e}")
             raise
-    
+
     logger.info(f"Completed embedding generation for {processed_count} documents")
     return processed_count
-

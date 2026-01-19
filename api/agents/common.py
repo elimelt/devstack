@@ -17,7 +17,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING
 
 from api import db, state
 from api.producers.chat_producer import build_chat_message, publish_chat_message
@@ -129,9 +129,7 @@ async def acquire_message_slot(sender: str, cooldown_sec: float) -> bool:
             return False
 
 
-async def wait_for_cooldown(
-    sender: str, cooldown_sec: float, stop_event: asyncio.Event
-) -> bool:
+async def wait_for_cooldown(sender: str, cooldown_sec: float, stop_event: asyncio.Event) -> bool:
     """Wait until the global cooldown has elapsed, then acquire the message slot."""
     global _global_last_message_time
     lock = _get_global_cooldown_lock()
@@ -152,12 +150,10 @@ async def wait_for_cooldown(
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=wait_time)
             return False
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
 
     return False
-
-
 
 
 # ============================================================================
@@ -204,9 +200,11 @@ COMPACT_STYLE = """Write like you're talking to a coworker, not writing a blog p
 # SHARED PERSONAS
 # ============================================================================
 
+
 @dataclass
 class Persona:
     """Represents an agent persona with name and inner voice description."""
+
     name: str
     inner_voice: str
 
@@ -283,6 +281,7 @@ Know well: Production realities, technical debt tradeoffs, what actually breaks,
 # BASE AGENT CONFIGURATION
 # ============================================================================
 
+
 @dataclass
 class AgentConfig:
     """Configuration for an agent instance."""
@@ -325,6 +324,7 @@ class AgentConfig:
 # ============================================================================
 # SHARED HISTORY FETCHING
 # ============================================================================
+
 
 async def fetch_messages_by_token_limit(
     channel: str,
@@ -369,6 +369,7 @@ async def fetch_messages_by_token_limit(
 # DEDUPLICATION
 # ============================================================================
 
+
 def normalize_text(s: str) -> str:
     """Normalize text for deduplication comparison."""
     s = s.lower()
@@ -398,6 +399,7 @@ async def is_duplicate_message(channel: str, text: str) -> bool:
 # ============================================================================
 # BASE AGENT CLASS
 # ============================================================================
+
 
 class BaseAgent(abc.ABC):
     """Base class for AI agents with common lifecycle management.
@@ -497,7 +499,7 @@ class BaseAgent(abc.ABC):
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=initial_delay)
                 return
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
         while not stop_event.is_set():
@@ -527,18 +529,16 @@ class BaseAgent(abc.ABC):
                     if not slot_acquired:
                         if not await wait_for_cooldown(sender, cooldown_sec, stop_event):
                             break
-                else:
-                    if not await wait_for_cooldown(sender, cooldown_sec, stop_event):
-                        break
+                elif not await wait_for_cooldown(sender, cooldown_sec, stop_event):
+                    break
 
                 # Select channel and fetch history
                 channel = random.choice(self.config.channels)
-                self.logger.info("[%s] Session channel=%s persona=%s",
-                               sender, channel, self.config.persona_key)
-
-                history = await fetch_messages_by_token_limit(
-                    channel, self.config.token_limit
+                self.logger.info(
+                    "[%s] Session channel=%s persona=%s", sender, channel, self.config.persona_key
                 )
+
+                history = await fetch_messages_by_token_limit(channel, self.config.token_limit)
 
                 if not history:
                     self.logger.debug("[%s] No history for channel=%s", sender, channel)
@@ -570,15 +570,12 @@ class BaseAgent(abc.ABC):
                 self._is_first_message = False
 
                 # Sleep until next cycle
-                sleep_time = random.uniform(
-                    self.config.min_sleep_sec,
-                    self.config.max_sleep_sec
-                )
+                sleep_time = random.uniform(self.config.min_sleep_sec, self.config.max_sleep_sec)
                 self.logger.debug("[%s] Sleeping for %.1fs", sender, sleep_time)
                 try:
                     await asyncio.wait_for(stop_event.wait(), timeout=sleep_time)
                     break
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
 
             except Exception:
@@ -589,6 +586,7 @@ class BaseAgent(abc.ABC):
 # ============================================================================
 # SHARED PROMPT BUILDING
 # ============================================================================
+
 
 def build_agent_prompt(
     channel: str,
@@ -626,7 +624,9 @@ def build_agent_prompt(
             lines.append(seed_document.strip()[:4000])
         else:
             lines.append("\n## SOURCE MATERIAL")
-            lines.append("""The following document is the seed for this conversation. Engage with it critically—don't summarize it, react to it. What do you agree with? What seems wrong or incomplete? What does it remind you of? What's the most interesting thread to pull on?""")
+            lines.append(
+                """The following document is the seed for this conversation. Engage with it critically—don't summarize it, react to it. What do you agree with? What seems wrong or incomplete? What does it remind you of? What's the most interesting thread to pull on?"""
+            )
             lines.append("")
             lines.append("---BEGIN DOCUMENT---")
             lines.append(seed_document.strip())
@@ -683,9 +683,13 @@ DON'T:
     # Instructions for this turn
     if compact:
         if not history:
-            lines.append("\n**Start the conversation.** Pick something from the source you have a take on. Make a claim. 2-3 sentences, maybe a short paragraph.")
+            lines.append(
+                "\n**Start the conversation.** Pick something from the source you have a take on. Make a claim. 2-3 sentences, maybe a short paragraph."
+            )
         else:
-            lines.append("\n**Respond.** A few sentences is usually enough. Push back, build on something, or follow a thread.")
+            lines.append(
+                "\n**Respond.** A few sentences is usually enough. Push back, build on something, or follow a thread."
+            )
     else:
         lines.append("\n## YOUR TURN")
         if not history:

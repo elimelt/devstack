@@ -3,7 +3,7 @@ import logging
 import os
 import subprocess
 import time
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import Any
 
 _logger = logging.getLogger("api.sandbox")
@@ -50,7 +50,10 @@ def _log_execution(agent_id: str, code: str, result: str, success: bool, duratio
 
     _logger.info(
         "Sandbox execution: agent=%s success=%s duration=%dms code_hash=%s",
-        agent_id, success, duration_ms, entry["code_hash"]
+        agent_id,
+        success,
+        duration_ms,
+        entry["code_hash"],
     )
 
 
@@ -87,7 +90,10 @@ def execute_python(code: str, agent_id: str = "unknown") -> tuple[str, bool]:
         return "ERROR: No code provided", False
 
     if not _check_rate_limit(agent_id):
-        return f"ERROR: Rate limit exceeded. Max {RATE_LIMIT_MAX_EXECUTIONS} executions per {RATE_LIMIT_WINDOW}s", False
+        return (
+            f"ERROR: Rate limit exceeded. Max {RATE_LIMIT_MAX_EXECUTIONS} executions per {RATE_LIMIT_WINDOW}s",
+            False,
+        )
 
     cached = _get_cached_result(code)
     if cached:
@@ -99,20 +105,31 @@ def execute_python(code: str, agent_id: str = "unknown") -> tuple[str, bool]:
     # Build docker run command with security options
     cpu_quota = int(100000 * SANDBOX_CPU_LIMIT)
     docker_cmd = [
-        "docker", "run",
+        "docker",
+        "run",
         "--rm",
         "-i",
-        "--network", "none",
-        "--memory", SANDBOX_MEMORY_LIMIT,
-        "--memory-swap", SANDBOX_MEMORY_LIMIT,
-        "--cpu-period", "100000",
-        "--cpu-quota", str(cpu_quota),
-        "--pids-limit", "64",
+        "--network",
+        "none",
+        "--memory",
+        SANDBOX_MEMORY_LIMIT,
+        "--memory-swap",
+        SANDBOX_MEMORY_LIMIT,
+        "--cpu-period",
+        "100000",
+        "--cpu-quota",
+        str(cpu_quota),
+        "--pids-limit",
+        "64",
         "--read-only",
-        "--tmpfs", "/tmp:size=10M,mode=1777",
-        "--security-opt", "no-new-privileges:true",
-        "--cap-drop", "ALL",
-        "--user", "1000:1000",
+        "--tmpfs",
+        "/tmp:size=10M,mode=1777",
+        "--security-opt",
+        "no-new-privileges:true",
+        "--cap-drop",
+        "ALL",
+        "--user",
+        "1000:1000",
         SANDBOX_IMAGE,
     ]
 
@@ -121,7 +138,7 @@ def execute_python(code: str, agent_id: str = "unknown") -> tuple[str, bool]:
             docker_cmd,
             input=code.encode("utf-8"),
             capture_output=True,
-            timeout=SANDBOX_TIMEOUT + 5,  # Extra buffer for container startup
+            timeout=SANDBOX_TIMEOUT + 5, check=False,  # Extra buffer for container startup
         )
 
         output = proc.stdout.decode("utf-8", errors="replace")
@@ -134,7 +151,10 @@ def execute_python(code: str, agent_id: str = "unknown") -> tuple[str, bool]:
         # Truncate output if too long
         max_output = 50000
         if len(combined) > max_output:
-            combined = combined[:max_output] + f"\n... [output truncated, {len(combined) - max_output} bytes omitted]"
+            combined = (
+                combined[:max_output]
+                + f"\n... [output truncated, {len(combined) - max_output} bytes omitted]"
+            )
 
         _cache_result(code, combined, success)
         _log_execution(agent_id, code, combined, success, duration_ms)
@@ -173,9 +193,8 @@ def is_sandbox_available() -> bool:
         result = subprocess.run(
             ["docker", "image", "inspect", SANDBOX_IMAGE],
             capture_output=True,
-            timeout=10,
+            timeout=10, check=False,
         )
         return result.returncode == 0
     except Exception:
         return False
-

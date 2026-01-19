@@ -41,7 +41,9 @@ def build_chat_message(channel: str, sender: str, text: str) -> ChatMessageEvent
 
 
 async def publish_chat_message(event_bus: EventBus, channel: str, event: ChatMessageEvent) -> None:
-    _logger.debug("[publish_chat] Publishing to Redis channel=%s sender=%s", channel, event.get("sender"))
+    _logger.debug(
+        "[publish_chat] Publishing to Redis channel=%s sender=%s", channel, event.get("sender")
+    )
     await event_bus.publish_chat(channel, event)
     _logger.debug("[publish_chat] Published to Redis, inserting to DB")
     try:

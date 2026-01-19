@@ -30,9 +30,9 @@ def compute_hybrid_scores(
 ) -> list[dict]:
     fts_by_id = {r["id"]: (i + 1, r) for i, r in enumerate(fts_results)}
     vec_by_id = {r["id"]: (i + 1, r) for i, r in enumerate(vec_results)}
-    
+
     all_ids = set(fts_by_id.keys()) | set(vec_by_id.keys())
-    
+
     combined = []
     for doc_id in all_ids:
         fts_rank = fts_by_id.get(doc_id, (None, None))[0]
@@ -49,14 +49,18 @@ def compute_hybrid_scores(
         result = {**doc}
         result["scores"] = {
             "hybrid": round(hybrid_score, 6),
-            "fulltext": round(fts_by_id.get(doc_id, (None, {}))[1].get("rank", 0), 6) if fts_rank else None,
-            "semantic": round(vec_by_id.get(doc_id, (None, {}))[1].get("similarity", 0), 6) if vec_rank else None,
+            "fulltext": round(fts_by_id.get(doc_id, (None, {}))[1].get("rank", 0), 6)
+            if fts_rank
+            else None,
+            "semantic": round(vec_by_id.get(doc_id, (None, {}))[1].get("similarity", 0), 6)
+            if vec_rank
+            else None,
             "fts_rank": fts_rank,
             "vec_rank": vec_rank,
         }
         result.pop("rank", None)
         result.pop("similarity", None)
-        
+
         combined.append(result)
 
     combined.sort(key=lambda x: x["scores"]["hybrid"], reverse=True)
@@ -170,9 +174,7 @@ async def search_notes(
                 logger.warning(f"Semantic search unavailable, using fulltext only: {e}")
 
             if vec_results:
-                results = compute_hybrid_scores(
-                    fts_results, vec_results, fts_weight, vec_weight
-                )
+                results = compute_hybrid_scores(fts_results, vec_results, fts_weight, vec_weight)
             else:
                 results = fts_results
                 for r in results:
@@ -188,9 +190,9 @@ async def search_notes(
         raise
     except Exception as e:
         logger.exception(f"Search error: {e}")
-        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Search failed: {e!s}")
 
-    paginated = results[offset:offset + limit]
+    paginated = results[offset : offset + limit]
 
     elapsed_ms = round((time.time() - start_time) * 1000, 2)
 
@@ -213,6 +215,7 @@ async def get_embedding_status() -> dict[str, Any]:
         model_available = False
         try:
             from api.notes_embeddings import is_model_available
+
             model_available = is_model_available()
         except ImportError:
             pass

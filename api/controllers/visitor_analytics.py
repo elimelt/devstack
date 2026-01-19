@@ -137,4 +137,3 @@ async def get_visitor_analytics_by_id(
         raise HTTPException(
             status_code=500, detail=f"Failed to fetch visitor analytics: {e}"
         ) from e
-

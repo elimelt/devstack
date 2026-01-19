@@ -135,7 +135,7 @@ async def websocket_visitors(websocket: WebSocket) -> None:
         # Cleanup pubsub with error handling
         try:
             await asyncio.wait_for(pubsub.unsubscribe("visitor_updates"), timeout=2.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             _logger.warning("Timeout unsubscribing from visitor_updates")
         except Exception as e:
             _logger.warning("Error unsubscribing: %s", e)
@@ -145,7 +145,7 @@ async def websocket_visitors(websocket: WebSocket) -> None:
                 await asyncio.wait_for(pubsub.aclose(), timeout=2.0)
             else:
                 await asyncio.wait_for(pubsub.close(), timeout=2.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             _logger.warning("Timeout closing pubsub connection")
         except Exception as e:
             _logger.warning("Error closing pubsub: %s", e)

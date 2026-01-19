@@ -25,4 +25,3 @@ class SoftDeleteResponse(BaseModel):
 class ChatAnalyticsResponse(BaseModel):
     messages: int
     senders: int
-

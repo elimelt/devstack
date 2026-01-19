@@ -1,21 +1,21 @@
-import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from unittest.mock import patch
 
 import httpx
+import pytest
 
 from api.notes_sync import (
+    GitHubClient,
+    RateLimitInfo,
     parse_frontmatter,
     parse_tags,
     sync_notes,
-    GitHubClient,
-    RateLimitInfo,
 )
 
 
 class TestParseFrontmatter:
     def test_valid_frontmatter_all_fields(self):
-        content = '''---
+        content = """---
 title: Test Document
 category: Testing
 tags: unit, test, python
@@ -23,7 +23,7 @@ description: A test document
 ---
 
 # Content here
-'''
+"""
         metadata, body = parse_frontmatter(content)
         assert metadata["title"] == "Test Document"
         assert metadata["category"] == "Testing"
@@ -38,22 +38,22 @@ description: A test document
         assert body == content
 
     def test_malformed_yaml(self):
-        content = '''---
+        content = """---
 title: Bad YAML
   invalid indentation: [
 ---
 
 Content
-'''
+"""
         metadata, body = parse_frontmatter(content)
         assert metadata == {}
 
     def test_empty_frontmatter(self):
-        content = '''---
+        content = """---
 ---
 
 Content here
-'''
+"""
         metadata, body = parse_frontmatter(content)
         assert metadata == {}
         assert "Content here" in body
@@ -91,12 +91,14 @@ class TestParseTags:
 
 class TestRateLimitInfo:
     def test_from_headers(self):
-        headers = httpx.Headers({
-            "x-ratelimit-limit": "5000",
-            "x-ratelimit-remaining": "4999",
-            "x-ratelimit-reset": "1735850000",
-            "x-ratelimit-used": "1",
-        })
+        headers = httpx.Headers(
+            {
+                "x-ratelimit-limit": "5000",
+                "x-ratelimit-remaining": "4999",
+                "x-ratelimit-reset": "1735850000",
+                "x-ratelimit-used": "1",
+            }
+        )
         info = RateLimitInfo.from_headers(headers)
         assert info is not None
         assert info.limit == 5000
@@ -111,22 +113,22 @@ class TestRateLimitInfo:
         assert info.remaining == 0
 
     def test_wait_seconds_future(self):
-        future_time = datetime.now(timezone.utc).timestamp() + 60
+        future_time = datetime.now(UTC).timestamp() + 60
         info = RateLimitInfo(
             limit=5000,
             remaining=0,
-            reset_at=datetime.fromtimestamp(future_time, tz=timezone.utc),
+            reset_at=datetime.fromtimestamp(future_time, tz=UTC),
             used=5000,
         )
         wait = info.wait_seconds()
         assert 59 < wait < 62  # ~60 seconds + 1 second buffer
 
     def test_wait_seconds_past(self):
-        past_time = datetime.now(timezone.utc).timestamp() - 60
+        past_time = datetime.now(UTC).timestamp() - 60
         info = RateLimitInfo(
             limit=5000,
             remaining=0,
-            reset_at=datetime.fromtimestamp(past_time, tz=timezone.utc),
+            reset_at=datetime.fromtimestamp(past_time, tz=UTC),
             used=5000,
         )
         wait = info.wait_seconds()
@@ -144,9 +146,7 @@ class TestGitHubClient:
         assert client.headers["Authorization"] == "token my-token"
 
 
-
 class TestSyncNotesLegacyWrapper:
-
     @pytest.fixture
     def mock_sync_with_job(self):
         with patch("api.notes_sync.sync_notes_with_job") as mock:
@@ -195,4 +195,3 @@ class TestSyncNotesLegacyWrapper:
         result = await sync_notes()
 
         assert result["success"] is False
-

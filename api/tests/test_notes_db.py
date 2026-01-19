@@ -1,10 +1,10 @@
-import pytest
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
+
+import pytest
 
 
 class MockAsyncCursor:
-
     def __init__(self, rows=None):
         self.rows = rows or []
         self._index = 0
@@ -26,7 +26,6 @@ class MockAsyncCursor:
 
 
 class MockAsyncConnection:
-
     def __init__(self, cursor_results=None):
         self.cursor_results = cursor_results or []
         self._call_index = 0
@@ -46,7 +45,6 @@ class MockAsyncConnection:
 
 
 def create_mock_connection(cursor_results=None):
-
     async def connect(*args, **kwargs):
         return MockAsyncConnection(cursor_results)
 
@@ -61,18 +59,20 @@ class TestNotesUpsertDocument:
 
     @pytest.mark.asyncio
     async def test_insert_new_document(self, mock_psycopg):
-        mock_psycopg.connect = create_mock_connection([
-            None,
-            [(1,)],
-            [(1,)],
-            [],
-            None,
-            [(1,)],
-            [],
-            None,
-            [(2,)],
-            [],
-        ])
+        mock_psycopg.connect = create_mock_connection(
+            [
+                None,
+                [(1,)],
+                [(1,)],
+                [],
+                None,
+                [(1,)],
+                [],
+                None,
+                [(2,)],
+                [],
+            ]
+        )
 
         from api.db import notes_upsert_document
 
@@ -91,10 +91,12 @@ class TestNotesUpsertDocument:
 
     @pytest.mark.asyncio
     async def test_insert_without_category(self, mock_psycopg):
-        mock_psycopg.connect = create_mock_connection([
-            [(1,)],
-            [],
-        ])
+        mock_psycopg.connect = create_mock_connection(
+            [
+                [(1,)],
+                [],
+            ]
+        )
 
         from api.db import notes_upsert_document
 
@@ -111,11 +113,13 @@ class TestNotesUpsertDocument:
 
     @pytest.mark.asyncio
     async def test_insert_with_existing_category(self, mock_psycopg):
-        mock_psycopg.connect = create_mock_connection([
-            [(5,)],
-            [(1,)],
-            [],
-        ])
+        mock_psycopg.connect = create_mock_connection(
+            [
+                [(5,)],
+                [(1,)],
+                [],
+            ]
+        )
 
         from api.db import notes_upsert_document
 
@@ -140,10 +144,12 @@ class TestNotesFetchDocuments:
     @pytest.mark.asyncio
     async def test_fetch_all_documents(self, mock_psycopg):
         now = datetime.now(UTC)
-        mock_psycopg.connect = create_mock_connection([
-            [(1, "content/doc1.md", "Doc 1", "Category", "Desc", now, "sha123")],
-            [("tag1",), ("tag2",)],
-        ])
+        mock_psycopg.connect = create_mock_connection(
+            [
+                [(1, "content/doc1.md", "Doc 1", "Category", "Desc", now, "sha123")],
+                [("tag1",), ("tag2",)],
+            ]
+        )
 
         from api.db import notes_fetch_documents
 
@@ -187,10 +193,12 @@ class TestNotesGetDocumentById:
     @pytest.mark.asyncio
     async def test_document_found(self, mock_psycopg):
         now = datetime.now(UTC)
-        mock_psycopg.connect = create_mock_connection([
-            [(1, "content/test.md", "Test", "Category", "Desc", "# Content", now, "sha")],
-            [("tag1",)],
-        ])
+        mock_psycopg.connect = create_mock_connection(
+            [
+                [(1, "content/test.md", "Test", "Category", "Desc", "# Content", now, "sha")],
+                [("tag1",)],
+            ]
+        )
 
         from api.db import notes_get_document_by_id
 
@@ -220,9 +228,11 @@ class TestNotesDeleteDocumentsNotIn:
 
     @pytest.mark.asyncio
     async def test_deletes_documents(self, mock_psycopg):
-        mock_psycopg.connect = create_mock_connection([
-            [(1,), (2,)],
-        ])
+        mock_psycopg.connect = create_mock_connection(
+            [
+                [(1,), (2,)],
+            ]
+        )
 
         from api.db import notes_delete_documents_not_in
 
@@ -247,9 +257,11 @@ class TestNotesGetAllTags:
 
     @pytest.mark.asyncio
     async def test_returns_tags_with_counts(self, mock_psycopg):
-        mock_psycopg.connect = create_mock_connection([
-            [(1, "python", 5), (2, "testing", 3)],
-        ])
+        mock_psycopg.connect = create_mock_connection(
+            [
+                [(1, "python", 5), (2, "testing", 3)],
+            ]
+        )
 
         from api.db import notes_get_all_tags
 
@@ -278,9 +290,11 @@ class TestNotesGetAllCategories:
 
     @pytest.mark.asyncio
     async def test_returns_categories_with_counts(self, mock_psycopg):
-        mock_psycopg.connect = create_mock_connection([
-            [(1, "Networks", 10), (2, "Algorithms", 8)],
-        ])
+        mock_psycopg.connect = create_mock_connection(
+            [
+                [(1, "Networks", 10), (2, "Algorithms", 8)],
+            ]
+        )
 
         from api.db import notes_get_all_categories
 
@@ -301,7 +315,6 @@ class TestNotesGetAllCategories:
         assert result == []
 
 
-
 class TestNotesGetCategoryByName:
     @pytest.fixture
     def mock_psycopg(self):
@@ -310,9 +323,11 @@ class TestNotesGetCategoryByName:
 
     @pytest.mark.asyncio
     async def test_category_found(self, mock_psycopg):
-        mock_psycopg.connect = create_mock_connection([
-            [(1, "Networks")],
-        ])
+        mock_psycopg.connect = create_mock_connection(
+            [
+                [(1, "Networks")],
+            ]
+        )
 
         from api.db import notes_get_category_by_name
 
@@ -341,9 +356,11 @@ class TestNotesGetTagByName:
 
     @pytest.mark.asyncio
     async def test_tag_found(self, mock_psycopg):
-        mock_psycopg.connect = create_mock_connection([
-            [(5, "python")],
-        ])
+        mock_psycopg.connect = create_mock_connection(
+            [
+                [(5, "python")],
+            ]
+        )
 
         from api.db import notes_get_tag_by_name
 
@@ -371,9 +388,11 @@ class TestNotesGetLastSyncSha:
 
     @pytest.mark.asyncio
     async def test_returns_sha(self, mock_psycopg):
-        mock_psycopg.connect = create_mock_connection([
-            [("abc123def456",)],
-        ])
+        mock_psycopg.connect = create_mock_connection(
+            [
+                [("abc123def456",)],
+            ]
+        )
 
         from api.db import notes_get_last_sync_sha
 
@@ -400,9 +419,11 @@ class TestNotesCountDocuments:
 
     @pytest.mark.asyncio
     async def test_count_all_documents(self, mock_psycopg):
-        mock_psycopg.connect = create_mock_connection([
-            [(42,)],
-        ])
+        mock_psycopg.connect = create_mock_connection(
+            [
+                [(42,)],
+            ]
+        )
 
         from api.db import notes_count_documents
 
@@ -412,9 +433,11 @@ class TestNotesCountDocuments:
 
     @pytest.mark.asyncio
     async def test_count_with_category_filter(self, mock_psycopg):
-        mock_psycopg.connect = create_mock_connection([
-            [(10,)],
-        ])
+        mock_psycopg.connect = create_mock_connection(
+            [
+                [(10,)],
+            ]
+        )
 
         from api.db import notes_count_documents
 
@@ -424,9 +447,11 @@ class TestNotesCountDocuments:
 
     @pytest.mark.asyncio
     async def test_count_with_tag_filter(self, mock_psycopg):
-        mock_psycopg.connect = create_mock_connection([
-            [(5,)],
-        ])
+        mock_psycopg.connect = create_mock_connection(
+            [
+                [(5,)],
+            ]
+        )
 
         from api.db import notes_count_documents
 
@@ -453,9 +478,11 @@ class TestNotesGetOrCreateCategory:
 
     @pytest.mark.asyncio
     async def test_returns_existing_category(self, mock_psycopg):
-        mock_psycopg.connect = create_mock_connection([
-            [(5,)],
-        ])
+        mock_psycopg.connect = create_mock_connection(
+            [
+                [(5,)],
+            ]
+        )
 
         from api.db import notes_get_or_create_category
 
@@ -465,10 +492,12 @@ class TestNotesGetOrCreateCategory:
 
     @pytest.mark.asyncio
     async def test_creates_new_category(self, mock_psycopg):
-        mock_psycopg.connect = create_mock_connection([
-            None,
-            [(10,)],
-        ])
+        mock_psycopg.connect = create_mock_connection(
+            [
+                None,
+                [(10,)],
+            ]
+        )
 
         from api.db import notes_get_or_create_category
 
@@ -485,9 +514,11 @@ class TestNotesGetOrCreateTag:
 
     @pytest.mark.asyncio
     async def test_returns_existing_tag(self, mock_psycopg):
-        mock_psycopg.connect = create_mock_connection([
-            [(7,)],
-        ])
+        mock_psycopg.connect = create_mock_connection(
+            [
+                [(7,)],
+            ]
+        )
 
         from api.db import notes_get_or_create_tag
 
@@ -497,14 +528,15 @@ class TestNotesGetOrCreateTag:
 
     @pytest.mark.asyncio
     async def test_creates_new_tag(self, mock_psycopg):
-        mock_psycopg.connect = create_mock_connection([
-            None,
-            [(15,)],
-        ])
+        mock_psycopg.connect = create_mock_connection(
+            [
+                None,
+                [(15,)],
+            ]
+        )
 
         from api.db import notes_get_or_create_tag
 
         result = await notes_get_or_create_tag("newtag")
 
         assert result == 15
-

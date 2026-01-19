@@ -34,15 +34,17 @@ async def sync_job_create(commit_sha: str | None, file_paths: list[str]) -> int:
 async def sync_job_get(job_id: int) -> dict[str, Any] | None:
     """Get a sync job by ID with item counts."""
     async with _get_connection() as conn:
-        row = await (await conn.execute(
-            """
+        row = await (
+            await conn.execute(
+                """
             SELECT id, status, commit_sha, total_items, completed_items, failed_items,
                    created_at, started_at, completed_at, error_message, rate_limit_reset_at,
                    last_activity_at
             FROM notes_sync_jobs WHERE id = %s
             """,
-            (job_id,),
-        )).fetchone()
+                (job_id,),
+            )
+        ).fetchone()
         if not row:
             return None
         return {
@@ -76,16 +78,18 @@ async def sync_job_list(limit: int = 20, status: str | None = None) -> list[dict
             )
         result = []
         async for row in rows:
-            result.append({
-                "id": row[0],
-                "status": row[1],
-                "commit_sha": row[2],
-                "total_items": row[3],
-                "completed_items": row[4],
-                "failed_items": row[5],
-                "created_at": row[6].astimezone(UTC).isoformat() if row[6] else None,
-                "completed_at": row[7].astimezone(UTC).isoformat() if row[7] else None,
-            })
+            result.append(
+                {
+                    "id": row[0],
+                    "status": row[1],
+                    "commit_sha": row[2],
+                    "total_items": row[3],
+                    "completed_items": row[4],
+                    "failed_items": row[5],
+                    "created_at": row[6].astimezone(UTC).isoformat() if row[6] else None,
+                    "completed_at": row[7].astimezone(UTC).isoformat() if row[7] else None,
+                }
+            )
         return result
 
 
@@ -152,7 +156,10 @@ async def sync_job_get_failed_items(job_id: int) -> list[dict[str, Any]]:
             "SELECT id, file_path, retry_count, last_error FROM notes_sync_job_items WHERE job_id = %s AND status = 'failed' ORDER BY id",
             (job_id,),
         )
-        return [{"id": row[0], "file_path": row[1], "retry_count": row[2], "last_error": row[3]} async for row in rows]
+        return [
+            {"id": row[0], "file_path": row[1], "retry_count": row[2], "last_error": row[3]}
+            async for row in rows
+        ]
 
 
 async def sync_job_item_update(
@@ -193,8 +200,9 @@ async def sync_job_reset_failed_items(job_id: int, max_retries: int = 5) -> int:
 async def sync_job_get_resumable() -> dict[str, Any] | None:
     """Get the most recent job that can be resumed (paused or running with pending items)."""
     async with _get_connection() as conn:
-        row = await (await conn.execute(
-            """
+        row = await (
+            await conn.execute(
+                """
             SELECT j.id, j.status, j.commit_sha, j.rate_limit_reset_at
             FROM notes_sync_jobs j
             WHERE j.status IN ('paused', 'running', 'pending')
@@ -202,7 +210,8 @@ async def sync_job_get_resumable() -> dict[str, Any] | None:
             ORDER BY j.created_at DESC
             LIMIT 1
             """,
-        )).fetchone()
+            )
+        ).fetchone()
         if not row:
             return None
         return {
@@ -226,10 +235,12 @@ async def sync_job_get_all_completed_paths(job_id: int) -> list[str]:
 async def sync_job_get_skipped_count(job_id: int) -> int:
     """Get count of skipped items (exceeded max retries) for a job."""
     async with _get_connection() as conn:
-        row = await (await conn.execute(
-            "SELECT COUNT(*) FROM notes_sync_job_items WHERE job_id = %s AND status = 'skipped'",
-            (job_id,),
-        )).fetchone()
+        row = await (
+            await conn.execute(
+                "SELECT COUNT(*) FROM notes_sync_job_items WHERE job_id = %s AND status = 'skipped'",
+                (job_id,),
+            )
+        ).fetchone()
         return row[0] if row else 0
 
 
@@ -279,17 +290,19 @@ async def sync_job_list_all_failed_items(
 
         result = []
         async for row in rows:
-            result.append({
-                "id": row[0],
-                "job_id": row[1],
-                "file_path": row[2],
-                "status": row[3],
-                "retry_count": row[4],
-                "last_error": row[5],
-                "last_attempt_at": row[6].astimezone(UTC).isoformat() if row[6] else None,
-                "created_at": row[7].astimezone(UTC).isoformat() if row[7] else None,
-                "commit_sha": row[8],
-            })
+            result.append(
+                {
+                    "id": row[0],
+                    "job_id": row[1],
+                    "file_path": row[2],
+                    "status": row[3],
+                    "retry_count": row[4],
+                    "last_error": row[5],
+                    "last_attempt_at": row[6].astimezone(UTC).isoformat() if row[6] else None,
+                    "created_at": row[7].astimezone(UTC).isoformat() if row[7] else None,
+                    "commit_sha": row[8],
+                }
+            )
         return result
 
 
@@ -385,4 +398,3 @@ async def sync_job_reset_all_failed(job_id: int, include_skipped: bool = False) 
                 (job_id,),
             )
         return result.rowcount
-

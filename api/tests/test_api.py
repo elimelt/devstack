@@ -70,6 +70,7 @@ def test_system_with_mocked_subprocess(client, monkeypatch):
 
 def test_system_gib_memory_parsing(client, monkeypatch):
     """Test that containers using GiB of memory are parsed correctly."""
+
     class FakeCompleted:
         def __init__(self, returncode, stdout):
             self.returncode = returncode
@@ -78,7 +79,9 @@ def test_system_gib_memory_parsing(client, monkeypatch):
 
     def fake_run(args, check=False, capture_output=False, text=False, timeout=None):
         if args[:2] == ["docker", "ps"]:
-            return FakeCompleted(0, "internal-api|Up 4 days|devstack-internal-api\nredis|Up 4 days|redis:7")
+            return FakeCompleted(
+                0, "internal-api|Up 4 days|devstack-internal-api\nredis|Up 4 days|redis:7"
+            )
         if args[:2] == ["docker", "stats"]:
             return FakeCompleted(
                 0,

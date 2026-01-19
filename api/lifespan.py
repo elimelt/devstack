@@ -8,7 +8,6 @@ import asyncio
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import Any
 
 import geoip2.database
 import redis.asyncio as redis
@@ -25,7 +24,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class LifespanResources:
     """Container for resources initialized during lifespan."""
-    
+
     redis_client: redis.Redis | None = None
     event_bus: EventBus | None = None
     geoip_reader: geoip2.database.Reader | None = None
@@ -36,12 +35,12 @@ class LifespanResources:
 
 async def init_redis() -> redis.Redis:
     """Initialize Redis connection with connection pool.
-    
+
     Returns:
         Configured Redis client.
     """
     settings = get_settings()
-    
+
     redis_pool = RedisConnectionPool(
         host=settings.redis.host,
         port=settings.redis.port,
@@ -53,30 +52,30 @@ async def init_redis() -> redis.Redis:
         socket_connect_timeout=settings.redis.socket_connect_timeout,
         retry_on_timeout=settings.redis.retry_on_timeout,
     )
-    
+
     candidate_client = redis.Redis(connection_pool=redis_pool, decode_responses=True)
     if hasattr(candidate_client, "__await__"):
         redis_client = await candidate_client
     else:
         redis_client = candidate_client
-    
+
     if settings.debug.redis:
         logging.getLogger("api.redis").setLevel(logging.DEBUG)
         redis_logger = logging.getLogger("api.redis")
         redis_client = wrap_redis_client(redis_client, redis_logger)
-    
+
     return redis_client
 
 
 def init_geoip() -> geoip2.database.Reader | None:
     """Initialize GeoIP reader if database file exists.
-    
+
     Returns:
         GeoIP reader or None if not available.
     """
     settings = get_settings()
     geoip_db_path = settings.geoip.db_path
-    
+
     if os.path.exists(geoip_db_path):
         return geoip2.database.Reader(geoip_db_path)
     return None
@@ -84,7 +83,7 @@ def init_geoip() -> geoip2.database.Reader | None:
 
 async def init_database() -> bool:
     """Initialize database connection pool.
-    
+
     Returns:
         True if database was initialized, False otherwise.
     """
@@ -103,39 +102,39 @@ async def setup_resources(
     enable_db: bool = True,
 ) -> LifespanResources:
     """Set up all shared resources.
-    
+
     Args:
         enable_geoip: Whether to initialize GeoIP reader.
         enable_db: Whether to initialize database.
-    
+
     Returns:
         LifespanResources containing all initialized resources.
     """
     resources = LifespanResources()
-    
+
     # Initialize Redis and EventBus
     resources.redis_client = await init_redis()
     resources.event_bus = EventBus(resources.redis_client)
-    
+
     # Initialize GeoIP if enabled
     if enable_geoip:
         resources.geoip_reader = init_geoip()
-    
+
     # Initialize database if enabled
     if enable_db:
         resources.db_enabled = await init_database()
-    
+
     # Update global state for backward compatibility
     state.redis_client = resources.redis_client
     state.event_bus = resources.event_bus
     state.geoip_reader = resources.geoip_reader
-    
+
     return resources
 
 
 async def cleanup_resources(resources: LifespanResources) -> None:
     """Clean up all resources on shutdown.
-    
+
     Args:
         resources: The resources to clean up.
     """
@@ -150,14 +149,14 @@ async def cleanup_resources(resources: LifespanResources) -> None:
         except Exception:
             for t in resources.background_tasks:
                 t.cancel()
-    
+
     # Close database
     if resources.db_enabled:
         try:
             await db.close_pool()
         except Exception:
             pass
-    
+
     # Close Redis
     if resources.redis_client:
         aclose = getattr(resources.redis_client, "aclose", None)
@@ -167,13 +166,12 @@ async def cleanup_resources(resources: LifespanResources) -> None:
             close = getattr(resources.redis_client, "close", None)
             if callable(close):
                 close()
-    
+
     # Close GeoIP
     if resources.geoip_reader:
         resources.geoip_reader.close()
-    
+
     # Clear global state
     state.redis_client = None
     state.event_bus = None
     state.geoip_reader = None
-

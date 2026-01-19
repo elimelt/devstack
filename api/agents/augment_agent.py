@@ -9,10 +9,10 @@ import logging
 from datetime import datetime
 
 from api.agents.common import (
-    AgentConfig,
-    BaseAgent,
     COWORKER_STYLE,
     PERSONAS,
+    AgentConfig,
+    BaseAgent,
     build_agent_prompt,
     env,
 )
@@ -32,15 +32,28 @@ _logger.propagate = False
 CUSTOM_TOOLS = SYNC_TOOLS
 
 # Backward compatibility: alias for old persona dict structure
-AUGMENT_PERSONAS = {key: {"name": p.name, "inner_voice": p.inner_voice} for key, p in PERSONAS.items()}
+AUGMENT_PERSONAS = {
+    key: {"name": p.name, "inner_voice": p.inner_voice} for key, p in PERSONAS.items()
+}
 
 # Unsafe tools that should be removed from the Augment SDK
 _UNSAFE_TOOLS = [
-    "codebase-retrieval", "remove-files", "save-file", "apply_patch",
-    "str-replace-editor", "view",
-    "launch-process", "kill-process", "read-process", "write-process", "list-processes",
+    "codebase-retrieval",
+    "remove-files",
+    "save-file",
+    "apply_patch",
+    "str-replace-editor",
+    "view",
+    "launch-process",
+    "kill-process",
+    "read-process",
+    "write-process",
+    "list-processes",
     "github-api",
-    "view_tasklist", "reorganize_tasklist", "update_tasks", "add_tasks",
+    "view_tasklist",
+    "reorganize_tasklist",
+    "update_tasks",
+    "add_tasks",
     "sub-agent",
     "linear",
 ]
@@ -56,19 +69,18 @@ class AugmentAgent(BaseAgent):
     async def _call_api(self, prompt: str) -> str | None:
         """Call the Augment API to generate a response."""
         return await asyncio.to_thread(
-            self._call_augment_sync,
-            self.api_token,
-            self.config.model,
-            prompt
+            self._call_augment_sync, self.api_token, self.config.model, prompt
         )
 
     def _call_augment_sync(self, api_token: str, model: str, prompt: str) -> str | None:
         """Synchronous Augment API call (runs in thread pool)."""
         try:
             from auggie_sdk import Auggie
+
             self.logger.debug(
                 "Creating Auggie client with model=%s, custom tools: %s",
-                model, [f.__name__ for f in CUSTOM_TOOLS]
+                model,
+                [f.__name__ for f in CUSTOM_TOOLS],
             )
             client = Auggie(
                 model=model,
@@ -82,6 +94,7 @@ class AugmentAgent(BaseAgent):
             return response or None
         except Exception as e:
             import traceback
+
             self.logger.error("Augment API error: %s\n%s", e, traceback.format_exc())
             return None
 
@@ -105,14 +118,14 @@ class AugmentAgent(BaseAgent):
 
         # Add tools section (Augment has web-search and web-fetch built-in)
         tools_desc = get_tools_description(
-            tool_names=["search_notes", "get_note", "run_python"],
-            compact=False
+            tool_names=["search_notes", "get_note", "run_python"], compact=False
         )
         # Insert additional Augment SDK tools
-        extra_tools = "\n- **web-search**: Search for current info\n- **web-fetch**: Fetch URL content"
+        extra_tools = (
+            "\n- **web-search**: Search for current info\n- **web-fetch**: Fetch URL content"
+        )
         tools_desc = tools_desc.replace(
-            "**USE CODE TO TEST CLAIMS.**",
-            extra_tools + "\n\n**USE CODE TO TEST CLAIMS.**"
+            "**USE CODE TO TEST CLAIMS.**", extra_tools + "\n\n**USE CODE TO TEST CLAIMS.**"
         )
 
         # Replace the placeholder tools section if present
@@ -138,7 +151,9 @@ def _create_agent_config(agent_index: int, persona_key: str | None) -> AgentConf
         sender=env("AUGMENT_AGENT_SENDER", "agent:augment"),
         agent_index=agent_index,
         persona_key=persona_key,
-        channels=[c.strip() for c in env("AUGMENT_AGENT_CHANNELS", "general").split(",") if c.strip()],
+        channels=[
+            c.strip() for c in env("AUGMENT_AGENT_CHANNELS", "general").split(",") if c.strip()
+        ],
         min_sleep_sec=int(env("AUGMENT_AGENT_MIN_SLEEP_SEC", "10800")),
         max_sleep_sec=int(env("AUGMENT_AGENT_MAX_SLEEP_SEC", "10800")),
         global_cooldown_sec=float(env("AUGMENT_AGENT_GLOBAL_COOLDOWN_SEC", "120")),
@@ -169,10 +184,15 @@ async def start_augment_agent(stop_event: asyncio.Event) -> list[asyncio.Task]:
         config = _create_agent_config(i, persona_key)
         agent = AugmentAgent(config, api_token)
 
-        persona_name = PERSONAS.get(persona_key).name if persona_key and persona_key in PERSONAS else "default"
+        persona_name = (
+            PERSONAS.get(persona_key).name if persona_key and persona_key in PERSONAS else "default"
+        )
         _logger.info(
             "Starting Augment agent sender=%s persona=%s channels=%s model=%s",
-            config.effective_sender, persona_name, config.channels, config.model
+            config.effective_sender,
+            persona_name,
+            config.channels,
+            config.model,
         )
 
         task = asyncio.create_task(agent.run(stop_event))
@@ -180,4 +200,3 @@ async def start_augment_agent(stop_event: asyncio.Event) -> list[asyncio.Task]:
 
     _logger.info("Started %d Augment agents", len(tasks))
     return tasks
-

@@ -51,4 +51,3 @@ async def fetch_events(
                 }
             )
         return out
-

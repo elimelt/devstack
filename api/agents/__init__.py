@@ -5,11 +5,11 @@ This package provides AI agent implementations for participating in chat convers
 
 from api.agents.augment_agent import AugmentAgent, start_augment_agent
 from api.agents.common import (
+    COMPACT_STYLE,
+    COWORKER_STYLE,
+    PERSONAS,
     AgentConfig,
     BaseAgent,
-    COWORKER_STYLE,
-    COMPACT_STYLE,
-    PERSONAS,
     Persona,
     build_agent_prompt,
     env,

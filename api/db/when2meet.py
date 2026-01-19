@@ -5,7 +5,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 from psycopg import errors as pg_errors
-from psycopg.types.json import Json
 
 from api.db.core import _get_connection
 
@@ -139,4 +138,3 @@ async def w2m_upsert_availability(
             "available_slots": available_slots,
             "updated_at": now.isoformat(),
         }
-

@@ -1,12 +1,9 @@
-from unittest.mock import AsyncMock, patch
-
-import pytest
+from unittest.mock import AsyncMock
 
 from api import db
 
 
 class TestPostAnalyticsClicks:
-
     def test_receive_valid_batch_of_click_events(self, internal_client, monkeypatch):
         mock_insert = AsyncMock(return_value=3)
         monkeypatch.setattr(db, "insert_click_events", mock_insert)
@@ -27,7 +24,11 @@ class TestPostAnalyticsClicks:
                     "ts": 1704067201000,
                     "seq": 2,
                     "session": {"pageId": "abc123"},
-                    "page": {"url": "https://example.com/about", "path": "/about", "title": "About"},
+                    "page": {
+                        "url": "https://example.com/about",
+                        "path": "/about",
+                        "title": "About",
+                    },
                     "viewport": {"width": 1920, "height": 1080},
                     "pointer": {"x": 150, "y": 250},
                     "element": {"tag": "a", "id": "nav-about"},
@@ -36,7 +37,11 @@ class TestPostAnalyticsClicks:
                     "ts": 1704067202000,
                     "seq": 3,
                     "session": {"pageId": "abc123"},
-                    "page": {"url": "https://example.com/contact", "path": "/contact", "title": "Contact"},
+                    "page": {
+                        "url": "https://example.com/contact",
+                        "path": "/contact",
+                        "title": "Contact",
+                    },
                     "viewport": {"width": 1920, "height": 1080},
                     "pointer": {"x": 200, "y": 300},
                     "element": {"tag": "button", "id": "contact-btn"},
@@ -112,7 +117,6 @@ class TestPostAnalyticsClicks:
 
 
 class TestGetAnalyticsClicks:
-
     def test_fetch_click_events_with_default_parameters(self, client, monkeypatch):
         mock_events = [
             {"timestamp": "2024-01-01T00:00:00+00:00", "event": {"ts": 1704067200000}},
@@ -172,4 +176,3 @@ class TestGetAnalyticsClicks:
         assert body["count"] == 0
         assert "error" in body
         assert "Database query failed" in body["error"]
-

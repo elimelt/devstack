@@ -3,8 +3,6 @@
 import os
 from unittest.mock import patch
 
-import pytest
-
 
 class TestRedisSettings:
     """Test Redis configuration settings."""
@@ -12,7 +10,7 @@ class TestRedisSettings:
     def test_redis_default_values(self):
         """Test Redis settings have sensible defaults."""
         from api.config import RedisSettings
-        
+
         with patch.dict(os.environ, {}, clear=True):
             settings = RedisSettings()
             assert settings.host == "redis"
@@ -24,7 +22,7 @@ class TestRedisSettings:
     def test_redis_from_environment(self):
         """Test Redis settings can be loaded from environment."""
         from api.config import RedisSettings
-        
+
         env = {
             "REDIS_HOST": "custom-redis",
             "REDIS_PORT": "6380",
@@ -47,7 +45,7 @@ class TestPostgresSettings:
     def test_postgres_default_values(self):
         """Test PostgreSQL settings have sensible defaults."""
         from api.config import PostgresSettings
-        
+
         with patch.dict(os.environ, {}, clear=True):
             settings = PostgresSettings()
             assert settings.host == "postgres"
@@ -61,7 +59,7 @@ class TestPostgresSettings:
     def test_postgres_dsn_generation(self):
         """Test DSN string generation for database connection."""
         from api.config import PostgresSettings
-        
+
         env = {
             "POSTGRES_HOST": "dbhost",
             "POSTGRES_PORT": "5433",
@@ -85,7 +83,7 @@ class TestAgentSettings:
     def test_agent_default_values(self):
         """Test agent settings have sensible defaults."""
         from api.config import AgentSettings
-        
+
         with patch.dict(os.environ, {}, clear=True):
             settings = AgentSettings()
             assert settings.count == 5
@@ -102,7 +100,7 @@ class TestCorsSettings:
     def test_cors_default_values(self):
         """Test CORS settings have sensible defaults."""
         from api.config import CorsSettings
-        
+
         with patch.dict(os.environ, {}, clear=True):
             settings = CorsSettings()
             assert "http://localhost:3000" in settings.origins
@@ -111,7 +109,7 @@ class TestCorsSettings:
     def test_cors_wildcard_disables_credentials(self):
         """Test that wildcard origin disables credentials."""
         from api.config import CorsSettings
-        
+
         env = {"CORS_ORIGINS": "*"}
         with patch.dict(os.environ, env, clear=True):
             settings = CorsSettings()
@@ -125,7 +123,7 @@ class TestSettings:
     def test_settings_singleton_pattern(self):
         """Test that get_settings returns the same instance."""
         from api.config import get_settings
-        
+
         s1 = get_settings()
         s2 = get_settings()
         assert s1 is s2
@@ -133,7 +131,7 @@ class TestSettings:
     def test_settings_has_all_subsections(self):
         """Test that Settings contains all configuration sections."""
         from api.config import Settings
-        
+
         with patch.dict(os.environ, {}, clear=True):
             settings = Settings()
             assert hasattr(settings, "redis")
@@ -146,7 +144,7 @@ class TestSettings:
     def test_debug_settings(self):
         """Test debug flag configuration."""
         from api.config import Settings
-        
+
         env = {
             "REQUEST_DEBUG": "1",
             "WS_DEBUG": "1",
@@ -163,7 +161,7 @@ class TestSettings:
     def test_feature_flags(self):
         """Test feature flag configuration."""
         from api.config import Settings
-        
+
         env = {
             "ENABLE_CHAT_DB": "1",
             "ENABLE_AGENT": "1",
@@ -174,4 +172,3 @@ class TestSettings:
             assert settings.features.chat_db is True
             assert settings.features.agent is True
             assert settings.features.analytics_scheduler is False
-

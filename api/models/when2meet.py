@@ -22,4 +22,3 @@ class EventResponse(BaseModel):
     event: Event
     availabilities: list[Availability]
     summary: dict[str, int]
-

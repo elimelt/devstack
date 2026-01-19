@@ -1,6 +1,6 @@
 import asyncio
-from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -101,7 +101,9 @@ class TestComputeVisitorStats:
             {
                 "timestamp": "2025-01-01T10:00:00+00:00",
                 "type": "join",
-                "payload": {"visitor": {"ip": "1.2.3.4", "location": {"country": "US", "city": "NYC"}}},
+                "payload": {
+                    "visitor": {"ip": "1.2.3.4", "location": {"country": "US", "city": "NYC"}}
+                },
             },
             {
                 "timestamp": "2025-01-01T10:30:00+00:00",
@@ -127,10 +129,26 @@ class TestComputeVisitorStats:
     @pytest.mark.asyncio
     async def test_recurring_visitor_multiple_sessions(self, mock_db):
         events = [
-            {"timestamp": "2025-01-01T08:00:00+00:00", "type": "join", "payload": {"visitor": {"ip": "5.5.5.5"}}},
-            {"timestamp": "2025-01-01T09:00:00+00:00", "type": "leave", "payload": {"ip": "5.5.5.5"}},
-            {"timestamp": "2025-01-01T14:00:00+00:00", "type": "join", "payload": {"visitor": {"ip": "5.5.5.5"}}},
-            {"timestamp": "2025-01-01T15:30:00+00:00", "type": "leave", "payload": {"ip": "5.5.5.5"}},
+            {
+                "timestamp": "2025-01-01T08:00:00+00:00",
+                "type": "join",
+                "payload": {"visitor": {"ip": "5.5.5.5"}},
+            },
+            {
+                "timestamp": "2025-01-01T09:00:00+00:00",
+                "type": "leave",
+                "payload": {"ip": "5.5.5.5"},
+            },
+            {
+                "timestamp": "2025-01-01T14:00:00+00:00",
+                "type": "join",
+                "payload": {"visitor": {"ip": "5.5.5.5"}},
+            },
+            {
+                "timestamp": "2025-01-01T15:30:00+00:00",
+                "type": "leave",
+                "payload": {"ip": "5.5.5.5"},
+            },
         ]
         mock_db.fetch_visitor_events_for_analytics = AsyncMock(return_value=events)
 
@@ -147,7 +165,11 @@ class TestComputeVisitorStats:
     @pytest.mark.asyncio
     async def test_active_session_at_period_end(self, mock_db):
         events = [
-            {"timestamp": "2025-01-01T23:00:00+00:00", "type": "join", "payload": {"visitor": {"ip": "9.9.9.9"}}},
+            {
+                "timestamp": "2025-01-01T23:00:00+00:00",
+                "type": "join",
+                "payload": {"visitor": {"ip": "9.9.9.9"}},
+            },
         ]
         mock_db.fetch_visitor_events_for_analytics = AsyncMock(return_value=events)
 
@@ -163,7 +185,11 @@ class TestComputeVisitorStats:
     @pytest.mark.asyncio
     async def test_leave_without_join_ignored(self, mock_db):
         events = [
-            {"timestamp": "2025-01-01T10:00:00+00:00", "type": "leave", "payload": {"ip": "orphan"}},
+            {
+                "timestamp": "2025-01-01T10:00:00+00:00",
+                "type": "leave",
+                "payload": {"ip": "orphan"},
+            },
         ]
         mock_db.fetch_visitor_events_for_analytics = AsyncMock(return_value=events)
 
@@ -189,8 +215,16 @@ class TestComputeVisitorStats:
     @pytest.mark.asyncio
     async def test_session_duration_capped_at_24h(self, mock_db):
         events = [
-            {"timestamp": "2025-01-01T00:00:00+00:00", "type": "join", "payload": {"visitor": {"ip": "long.session"}}},
-            {"timestamp": "2025-01-03T00:00:00+00:00", "type": "leave", "payload": {"ip": "long.session"}},
+            {
+                "timestamp": "2025-01-01T00:00:00+00:00",
+                "type": "join",
+                "payload": {"visitor": {"ip": "long.session"}},
+            },
+            {
+                "timestamp": "2025-01-03T00:00:00+00:00",
+                "type": "leave",
+                "payload": {"ip": "long.session"},
+            },
         ]
         mock_db.fetch_visitor_events_for_analytics = AsyncMock(return_value=events)
 
@@ -204,10 +238,26 @@ class TestComputeVisitorStats:
     @pytest.mark.asyncio
     async def test_multiple_visitors(self, mock_db):
         events = [
-            {"timestamp": "2025-01-01T10:00:00+00:00", "type": "join", "payload": {"visitor": {"ip": "visitor1"}}},
-            {"timestamp": "2025-01-01T10:30:00+00:00", "type": "leave", "payload": {"ip": "visitor1"}},
-            {"timestamp": "2025-01-01T11:00:00+00:00", "type": "join", "payload": {"visitor": {"ip": "visitor2"}}},
-            {"timestamp": "2025-01-01T12:00:00+00:00", "type": "leave", "payload": {"ip": "visitor2"}},
+            {
+                "timestamp": "2025-01-01T10:00:00+00:00",
+                "type": "join",
+                "payload": {"visitor": {"ip": "visitor1"}},
+            },
+            {
+                "timestamp": "2025-01-01T10:30:00+00:00",
+                "type": "leave",
+                "payload": {"ip": "visitor1"},
+            },
+            {
+                "timestamp": "2025-01-01T11:00:00+00:00",
+                "type": "join",
+                "payload": {"visitor": {"ip": "visitor2"}},
+            },
+            {
+                "timestamp": "2025-01-01T12:00:00+00:00",
+                "type": "leave",
+                "payload": {"ip": "visitor2"},
+            },
         ]
         mock_db.fetch_visitor_events_for_analytics = AsyncMock(return_value=events)
 
@@ -222,8 +272,13 @@ class TestComputeVisitorStats:
     @pytest.mark.asyncio
     async def test_location_only_set_on_join(self, mock_db):
         events = [
-            {"timestamp": "2025-01-01T10:00:00+00:00", "type": "join",
-             "payload": {"visitor": {"ip": "geo", "location": {"country": "JP", "city": "Tokyo"}}}},
+            {
+                "timestamp": "2025-01-01T10:00:00+00:00",
+                "type": "join",
+                "payload": {
+                    "visitor": {"ip": "geo", "location": {"country": "JP", "city": "Tokyo"}}
+                },
+            },
             {"timestamp": "2025-01-01T11:00:00+00:00", "type": "leave", "payload": {"ip": "geo"}},
         ]
         mock_db.fetch_visitor_events_for_analytics = AsyncMock(return_value=events)
@@ -234,7 +289,6 @@ class TestComputeVisitorStats:
 
         assert result[0]["location_country"] == "JP"
         assert result[0]["location_city"] == "Tokyo"
-
 
 
 class TestSaveVisitorStats:
@@ -251,20 +305,22 @@ class TestSaveVisitorStats:
     @pytest.mark.asyncio
     async def test_save_single_stat(self, mock_db):
         mock_db.upsert_visitor_stats = AsyncMock(return_value={})
-        stats = [{
-            "visitor_ip": "1.2.3.4",
-            "period_start": datetime(2025, 1, 1, tzinfo=UTC),
-            "period_end": datetime(2025, 1, 2, tzinfo=UTC),
-            "total_visits": 5,
-            "total_time_seconds": 3600,
-            "avg_session_duration_seconds": 720,
-            "is_recurring": True,
-            "first_visit_at": datetime(2025, 1, 1, 10, 0, tzinfo=UTC),
-            "last_visit_at": datetime(2025, 1, 1, 18, 0, tzinfo=UTC),
-            "visit_frequency_per_day": 5.0,
-            "location_country": "US",
-            "location_city": "NYC",
-        }]
+        stats = [
+            {
+                "visitor_ip": "1.2.3.4",
+                "period_start": datetime(2025, 1, 1, tzinfo=UTC),
+                "period_end": datetime(2025, 1, 2, tzinfo=UTC),
+                "total_visits": 5,
+                "total_time_seconds": 3600,
+                "avg_session_duration_seconds": 720,
+                "is_recurring": True,
+                "first_visit_at": datetime(2025, 1, 1, 10, 0, tzinfo=UTC),
+                "last_visit_at": datetime(2025, 1, 1, 18, 0, tzinfo=UTC),
+                "visit_frequency_per_day": 5.0,
+                "location_country": "US",
+                "location_city": "NYC",
+            }
+        ]
 
         result = await save_visitor_stats(stats)
 
@@ -275,11 +331,18 @@ class TestSaveVisitorStats:
     async def test_save_multiple_stats(self, mock_db):
         mock_db.upsert_visitor_stats = AsyncMock(return_value={})
         stats = [
-            {"visitor_ip": f"ip{i}", "period_start": datetime(2025, 1, 1, tzinfo=UTC),
-             "period_end": datetime(2025, 1, 2, tzinfo=UTC), "total_visits": 1,
-             "total_time_seconds": 100, "avg_session_duration_seconds": 100,
-             "is_recurring": False, "first_visit_at": None, "last_visit_at": None,
-             "visit_frequency_per_day": 1.0}
+            {
+                "visitor_ip": f"ip{i}",
+                "period_start": datetime(2025, 1, 1, tzinfo=UTC),
+                "period_end": datetime(2025, 1, 2, tzinfo=UTC),
+                "total_visits": 1,
+                "total_time_seconds": 100,
+                "avg_session_duration_seconds": 100,
+                "is_recurring": False,
+                "first_visit_at": None,
+                "last_visit_at": None,
+                "visit_frequency_per_day": 1.0,
+            }
             for i in range(3)
         ]
 
@@ -291,11 +354,20 @@ class TestSaveVisitorStats:
     @pytest.mark.asyncio
     async def test_save_handles_db_error(self, mock_db):
         mock_db.upsert_visitor_stats = AsyncMock(side_effect=Exception("DB error"))
-        stats = [{"visitor_ip": "fail", "period_start": datetime(2025, 1, 1, tzinfo=UTC),
-                  "period_end": datetime(2025, 1, 2, tzinfo=UTC), "total_visits": 1,
-                  "total_time_seconds": 100, "avg_session_duration_seconds": 100,
-                  "is_recurring": False, "first_visit_at": None, "last_visit_at": None,
-                  "visit_frequency_per_day": 1.0}]
+        stats = [
+            {
+                "visitor_ip": "fail",
+                "period_start": datetime(2025, 1, 1, tzinfo=UTC),
+                "period_end": datetime(2025, 1, 2, tzinfo=UTC),
+                "total_visits": 1,
+                "total_time_seconds": 100,
+                "avg_session_duration_seconds": 100,
+                "is_recurring": False,
+                "first_visit_at": None,
+                "last_visit_at": None,
+                "visit_frequency_per_day": 1.0,
+            }
+        ]
 
         result = await save_visitor_stats(stats)
 
@@ -322,7 +394,11 @@ class TestRunBatchJob:
     @pytest.mark.asyncio
     async def test_normal_run_saves(self, mock_db):
         events = [
-            {"timestamp": "2025-01-01T10:00:00+00:00", "type": "join", "payload": {"visitor": {"ip": "test"}}},
+            {
+                "timestamp": "2025-01-01T10:00:00+00:00",
+                "type": "join",
+                "payload": {"visitor": {"ip": "test"}},
+            },
             {"timestamp": "2025-01-01T11:00:00+00:00", "type": "leave", "payload": {"ip": "test"}},
         ]
         mock_db.fetch_visitor_events_for_analytics = AsyncMock(return_value=events)
@@ -395,6 +471,7 @@ class TestVisitorAnalyticsAPI:
         mock_db_module.fetch_visitor_stats = AsyncMock(return_value=[])
 
         from api.controllers.visitor_analytics import get_visitor_analytics
+
         result = await get_visitor_analytics()
 
         assert result["visitors"] == []
@@ -409,6 +486,7 @@ class TestVisitorAnalyticsAPI:
         mock_db_module.fetch_visitor_stats = AsyncMock(return_value=mock_data)
 
         from api.controllers.visitor_analytics import get_visitor_analytics
+
         result = await get_visitor_analytics()
 
         assert result["count"] == 2
@@ -419,6 +497,7 @@ class TestVisitorAnalyticsAPI:
         mock_db_module.fetch_visitor_stats = AsyncMock(return_value=[])
 
         from api.controllers.visitor_analytics import get_visitor_analytics
+
         result = await get_visitor_analytics(
             visitor_ip="1.2.3.4",
             start_date="2025-01-01T00:00:00Z",
@@ -443,6 +522,7 @@ class TestVisitorAnalyticsAPI:
         mock_db_module.fetch_visitor_stats = AsyncMock(return_value=[])
 
         from api.controllers.visitor_analytics import get_visitor_analytics
+
         result = await get_visitor_analytics(recurring_only=False)
 
         assert result["filters"]["segment"] == "non-recurring"
@@ -451,8 +531,9 @@ class TestVisitorAnalyticsAPI:
     async def test_get_visitor_analytics_db_error(self, mock_db_module):
         mock_db_module.fetch_visitor_stats = AsyncMock(side_effect=Exception("DB down"))
 
-        from api.controllers.visitor_analytics import get_visitor_analytics
         from fastapi import HTTPException
+
+        from api.controllers.visitor_analytics import get_visitor_analytics
 
         with pytest.raises(HTTPException) as exc_info:
             await get_visitor_analytics()
@@ -472,6 +553,7 @@ class TestVisitorAnalyticsAPI:
         mock_db_module.get_visitor_analytics_summary = AsyncMock(return_value=mock_summary)
 
         from api.controllers.visitor_analytics import get_visitor_analytics_summary
+
         result = await get_visitor_analytics_summary(start_date=None, end_date=None)
 
         assert result["summary"] == mock_summary
@@ -483,6 +565,7 @@ class TestVisitorAnalyticsAPI:
         mock_db_module.get_visitor_analytics_summary = AsyncMock(return_value={})
 
         from api.controllers.visitor_analytics import get_visitor_analytics_summary
+
         result = await get_visitor_analytics_summary(
             start_date="2025-01-01T00:00:00Z",
             end_date="2025-01-31T23:59:59Z",
@@ -495,8 +578,9 @@ class TestVisitorAnalyticsAPI:
     async def test_get_visitor_analytics_summary_db_error(self, mock_db_module):
         mock_db_module.get_visitor_analytics_summary = AsyncMock(side_effect=Exception("DB error"))
 
-        from api.controllers.visitor_analytics import get_visitor_analytics_summary
         from fastapi import HTTPException
+
+        from api.controllers.visitor_analytics import get_visitor_analytics_summary
 
         with pytest.raises(HTTPException) as exc_info:
             await get_visitor_analytics_summary()
@@ -509,6 +593,7 @@ class TestVisitorAnalyticsAPI:
         mock_db_module.fetch_visitor_stats = AsyncMock(return_value=mock_data)
 
         from api.controllers.visitor_analytics import get_visitor_analytics_by_id
+
         result = await get_visitor_analytics_by_id(visitor_id="1.2.3.4")
 
         assert result["visitor_id"] == "1.2.3.4"
@@ -520,6 +605,7 @@ class TestVisitorAnalyticsAPI:
         mock_db_module.fetch_visitor_stats = AsyncMock(return_value=[])
 
         from api.controllers.visitor_analytics import get_visitor_analytics_by_id
+
         result = await get_visitor_analytics_by_id(visitor_id="unknown")
 
         assert result["visitor_id"] == "unknown"
@@ -531,21 +617,22 @@ class TestVisitorAnalyticsAPI:
     async def test_get_visitor_analytics_by_id_db_error(self, mock_db_module):
         mock_db_module.fetch_visitor_stats = AsyncMock(side_effect=Exception("DB error"))
 
-        from api.controllers.visitor_analytics import get_visitor_analytics_by_id
         from fastapi import HTTPException
+
+        from api.controllers.visitor_analytics import get_visitor_analytics_by_id
 
         with pytest.raises(HTTPException) as exc_info:
             await get_visitor_analytics_by_id(visitor_id="1.2.3.4")
 
         assert exc_info.value.status_code == 500
 
-
     @pytest.mark.asyncio
     async def test_get_visitor_analytics_value_error(self, mock_db_module):
         mock_db_module.fetch_visitor_stats = AsyncMock(side_effect=ValueError("Invalid date"))
 
-        from api.controllers.visitor_analytics import get_visitor_analytics
         from fastapi import HTTPException
+
+        from api.controllers.visitor_analytics import get_visitor_analytics
 
         with pytest.raises(HTTPException) as exc_info:
             await get_visitor_analytics()
@@ -554,10 +641,13 @@ class TestVisitorAnalyticsAPI:
 
     @pytest.mark.asyncio
     async def test_get_visitor_analytics_summary_value_error(self, mock_db_module):
-        mock_db_module.get_visitor_analytics_summary = AsyncMock(side_effect=ValueError("Invalid date"))
+        mock_db_module.get_visitor_analytics_summary = AsyncMock(
+            side_effect=ValueError("Invalid date")
+        )
+
+        from fastapi import HTTPException
 
         from api.controllers.visitor_analytics import get_visitor_analytics_summary
-        from fastapi import HTTPException
 
         with pytest.raises(HTTPException) as exc_info:
             await get_visitor_analytics_summary(start_date=None, end_date=None)
@@ -568,8 +658,9 @@ class TestVisitorAnalyticsAPI:
     async def test_get_visitor_analytics_by_id_value_error(self, mock_db_module):
         mock_db_module.fetch_visitor_stats = AsyncMock(side_effect=ValueError("Invalid date"))
 
-        from api.controllers.visitor_analytics import get_visitor_analytics_by_id
         from fastapi import HTTPException
+
+        from api.controllers.visitor_analytics import get_visitor_analytics_by_id
 
         with pytest.raises(HTTPException) as exc_info:
             await get_visitor_analytics_by_id(visitor_id="1.2.3.4")
@@ -590,16 +681,20 @@ class TestRunBatchJobBranches:
     async def test_dry_run_with_many_stats(self, mock_db):
         events = []
         for i in range(7):
-            events.append({
-                "timestamp": f"2025-01-01T{10+i}:00:00+00:00",
-                "type": "join",
-                "payload": {"visitor": {"ip": f"visitor{i}"}},
-            })
-            events.append({
-                "timestamp": f"2025-01-01T{10+i}:30:00+00:00",
-                "type": "leave",
-                "payload": {"ip": f"visitor{i}"},
-            })
+            events.append(
+                {
+                    "timestamp": f"2025-01-01T{10+i}:00:00+00:00",
+                    "type": "join",
+                    "payload": {"visitor": {"ip": f"visitor{i}"}},
+                }
+            )
+            events.append(
+                {
+                    "timestamp": f"2025-01-01T{10+i}:30:00+00:00",
+                    "type": "leave",
+                    "payload": {"ip": f"visitor{i}"},
+                }
+            )
         mock_db.fetch_visitor_events_for_analytics = AsyncMock(return_value=events)
 
         result = await run_batch_job(days=1, dry_run=True)
@@ -617,7 +712,11 @@ class TestComputeVisitorStatsEdgeCases:
     @pytest.mark.asyncio
     async def test_visitor_with_empty_sessions_skipped(self, mock_db):
         events = [
-            {"timestamp": "2025-01-01T10:00:00+00:00", "type": "leave", "payload": {"ip": "no_join"}},
+            {
+                "timestamp": "2025-01-01T10:00:00+00:00",
+                "type": "leave",
+                "payload": {"ip": "no_join"},
+            },
         ]
         mock_db.fetch_visitor_events_for_analytics = AsyncMock(return_value=events)
 
@@ -634,6 +733,7 @@ class TestCLIMain:
             mock_job.return_value = {"total_records_saved": 0}
             with patch("sys.argv", ["visitor_analytics.py", "--days", "2", "--dry-run"]):
                 from api.batch.visitor_analytics import main
+
                 main()
                 mock_job.assert_called_once_with(days=2, dry_run=True)
 
@@ -642,5 +742,6 @@ class TestCLIMain:
             mock_job.return_value = {"total_records_saved": 0}
             with patch("sys.argv", ["visitor_analytics.py", "--days", "1"]):
                 from api.batch.visitor_analytics import main
+
                 main()
                 mock_job.assert_called_once_with(days=1, dry_run=False)

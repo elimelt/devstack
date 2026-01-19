@@ -7,11 +7,11 @@ This module provides:
 
 Usage:
     from api.errors import NotFoundError, ServiceUnavailableError
-    
+
     # In controllers:
     if not resource:
         raise NotFoundError(detail="Resource not found", resource_type="user", resource_id="123")
-    
+
     # Register handlers in main.py:
     from api.errors import register_exception_handlers
     register_exception_handlers(app)
@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 class ErrorResponse(BaseModel):
     """Standard error response model."""
-    
+
     error: str
     detail: str | None = None
     error_code: str | None = None
@@ -42,7 +42,7 @@ class APIError(Exception):
     status_code: int = 500
     error: str = "internal_error"
     detail: str = "An unexpected error occurred"
-    
+
     def __init__(
         self,
         detail: str | None = None,
@@ -66,7 +66,7 @@ class APIError(Exception):
 
 class NotFoundError(APIError):
     """Resource not found error (404)."""
-    
+
     status_code = 404
     error = "not_found"
     detail = "Resource not found"
@@ -74,7 +74,7 @@ class NotFoundError(APIError):
 
 class BadRequestError(APIError):
     """Bad request error (400)."""
-    
+
     status_code = 400
     error = "bad_request"
     detail = "Invalid request"
@@ -82,7 +82,7 @@ class BadRequestError(APIError):
 
 class UnauthorizedError(APIError):
     """Unauthorized error (401)."""
-    
+
     status_code = 401
     error = "unauthorized"
     detail = "Authentication required"
@@ -90,7 +90,7 @@ class UnauthorizedError(APIError):
 
 class ForbiddenError(APIError):
     """Forbidden error (403)."""
-    
+
     status_code = 403
     error = "forbidden"
     detail = "Access denied"
@@ -98,7 +98,7 @@ class ForbiddenError(APIError):
 
 class ServiceUnavailableError(APIError):
     """Service unavailable error (503)."""
-    
+
     status_code = 503
     error = "service_unavailable"
     detail = "Service temporarily unavailable"
@@ -106,7 +106,7 @@ class ServiceUnavailableError(APIError):
 
 class DatabaseError(APIError):
     """Database error (500)."""
-    
+
     status_code = 500
     error = "database_error"
     detail = "Database operation failed"
@@ -114,7 +114,7 @@ class DatabaseError(APIError):
 
 class ExternalServiceError(APIError):
     """External service error (502)."""
-    
+
     status_code = 502
     error = "external_service_error"
     detail = "External service request failed"
@@ -181,4 +181,3 @@ def register_exception_handlers(app: FastAPI) -> None:
     # Note: We don't override HTTPException handler to maintain backward compatibility
     # app.add_exception_handler(HTTPException, http_exception_handler)
     # app.add_exception_handler(Exception, general_exception_handler)
-

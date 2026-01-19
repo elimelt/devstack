@@ -73,20 +73,24 @@ async def compute_visitor_stats(
                 join_time = active_sessions.pop(ip)
                 duration = (timestamp - join_time).total_seconds()
                 duration = min(duration, 86400)
-                visitor_sessions[ip].append({
-                    "join_time": join_time,
-                    "leave_time": timestamp,
-                    "duration_seconds": duration,
-                })
+                visitor_sessions[ip].append(
+                    {
+                        "join_time": join_time,
+                        "leave_time": timestamp,
+                        "duration_seconds": duration,
+                    }
+                )
 
     for ip, join_time in active_sessions.items():
         duration = (end_time - join_time).total_seconds()
         duration = min(duration, 86400)
-        visitor_sessions[ip].append({
-            "join_time": join_time,
-            "leave_time": end_time,
-            "duration_seconds": duration,
-        })
+        visitor_sessions[ip].append(
+            {
+                "join_time": join_time,
+                "leave_time": end_time,
+                "duration_seconds": duration,
+            }
+        )
 
     stats_list: list[dict[str, Any]] = []
     period_days = max(1, (end_time - start_time).days)
@@ -105,20 +109,22 @@ async def compute_visitor_stats(
 
         country, city = visitor_locations.get(ip, (None, None))
 
-        stats_list.append({
-            "visitor_ip": ip,
-            "period_start": start_time,
-            "period_end": end_time,
-            "total_visits": total_visits,
-            "total_time_seconds": total_time,
-            "avg_session_duration_seconds": avg_duration,
-            "is_recurring": is_recurring,
-            "first_visit_at": first_visit,
-            "last_visit_at": last_visit,
-            "visit_frequency_per_day": frequency,
-            "location_country": country,
-            "location_city": city,
-        })
+        stats_list.append(
+            {
+                "visitor_ip": ip,
+                "period_start": start_time,
+                "period_end": end_time,
+                "total_visits": total_visits,
+                "total_time_seconds": total_time,
+                "avg_session_duration_seconds": avg_duration,
+                "is_recurring": is_recurring,
+                "first_visit_at": first_visit,
+                "last_visit_at": last_visit,
+                "visit_frequency_per_day": frequency,
+                "location_country": country,
+                "location_city": city,
+            }
+        )
 
     logger.info("Computed stats for %d unique visitors", len(stats_list))
     return stats_list
@@ -230,7 +236,7 @@ async def start_analytics_scheduler(stop_event: asyncio.Event) -> list[asyncio.T
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
                 break
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
         logger.info("Visitor analytics scheduler stopped")
@@ -263,4 +269,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

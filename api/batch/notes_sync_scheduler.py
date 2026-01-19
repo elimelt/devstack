@@ -14,7 +14,6 @@ async def run_sync_job(force: bool = False) -> dict:
 
 
 async def start_notes_sync_scheduler(stop_event: asyncio.Event) -> list[asyncio.Task]:
-
     async def _scheduler_loop() -> None:
         interval_hours = int(os.getenv("NOTES_SYNC_INTERVAL_HOURS", "6"))
         interval_seconds = interval_hours * 3600
@@ -40,7 +39,7 @@ async def start_notes_sync_scheduler(stop_event: asyncio.Event) -> list[asyncio.
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
                 break
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
             try:
@@ -59,4 +58,3 @@ async def start_notes_sync_scheduler(stop_event: asyncio.Event) -> list[asyncio.
 
     task = asyncio.create_task(_scheduler_loop())
     return [task]
-

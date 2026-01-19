@@ -130,4 +130,3 @@ async def chat_streaming(request: ChatRequest) -> StreamingResponse:
             "X-Accel-Buffering": "no",
         },
     )
-

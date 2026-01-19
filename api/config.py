@@ -10,7 +10,6 @@ Usage:
 """
 
 from functools import lru_cache
-from typing import Annotated
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -29,7 +28,9 @@ class RedisSettings(BaseSettings):
     health_check_interval: int = Field(default=30, description="Health check interval in seconds")
     retry_on_timeout: bool = Field(default=True, description="Retry on timeout")
     socket_timeout: float = Field(default=5.0, description="Socket timeout in seconds")
-    socket_connect_timeout: float = Field(default=5.0, description="Socket connect timeout in seconds")
+    socket_connect_timeout: float = Field(
+        default=5.0, description="Socket connect timeout in seconds"
+    )
 
 
 class PostgresSettings(BaseSettings):
@@ -59,9 +60,7 @@ class PostgresSettings(BaseSettings):
     pool_max_idle: int = Field(
         default=300, description="Maximum idle time before closing connection"
     )
-    pool_reconnect_timeout: int = Field(
-        default=300, description="Reconnection timeout in seconds"
-    )
+    pool_reconnect_timeout: int = Field(default=300, description="Reconnection timeout in seconds")
 
     def get_dsn(self) -> str:
         """Generate PostgreSQL DSN connection string."""
@@ -79,7 +78,9 @@ class AgentSettings(BaseSettings):
     count: int = Field(default=5, alias="agents", description="Number of agents")
     min_sleep_sec: int = Field(default=30, description="Minimum sleep between checks")
     max_sleep_sec: int = Field(default=120, description="Maximum sleep between checks")
-    wake_probability: float = Field(default=0.2, alias="wake_prob", description="Probability of waking")
+    wake_probability: float = Field(
+        default=0.2, alias="wake_prob", description="Probability of waking"
+    )
     wake_cooldown_sec: int = Field(default=45, description="Cooldown after wake")
     debug: bool = Field(default=False, description="Enable agent debug mode")
     log_level: str = Field(default="INFO", description="Agent log level")
@@ -244,4 +245,3 @@ def get_settings() -> Settings:
 def clear_settings_cache() -> None:
     """Clear cached settings (useful for testing)."""
     get_settings.cache_clear()
-

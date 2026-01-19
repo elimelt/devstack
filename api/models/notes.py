@@ -98,4 +98,3 @@ class FailedItem(BaseModel):
 class SyncJobDetailResponse(BaseModel):
     job: SyncJobDetail
     failed_items: list[FailedItem]
-

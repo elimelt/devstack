@@ -2,8 +2,7 @@
 
 from typing import Any
 
-from pydantic import BaseModel, Field
-
+from pydantic import BaseModel
 
 # Click Analytics Models
 
@@ -112,4 +111,3 @@ class VisitorAnalyticsByIdResponse(BaseModel):
     records: list[VisitorStats]
     count: int
     message: str | None = None
-

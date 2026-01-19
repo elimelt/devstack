@@ -291,8 +291,10 @@ async def fetch_click_events(
         rows = await conn.execute(sql, tuple(params))
         result: list[dict[str, Any]] = []
         async for row in rows:
-            result.append({
-                "timestamp": row[0].astimezone(UTC).isoformat(),
-                "event": row[1],
-            })
+            result.append(
+                {
+                    "timestamp": row[0].astimezone(UTC).isoformat(),
+                    "event": row[1],
+                }
+            )
         return result

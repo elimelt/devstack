@@ -23,11 +23,12 @@ isolation provides the real security - subprocess.run() will fail because
 there are no binaries to run, network calls will fail because --network=none,
 file writes will fail because --read-only, etc.
 """
-import sys
+
 import io
-import traceback
-import signal
 import resource
+import signal
+import sys
+import traceback
 
 
 def timeout_handler(signum, frame):
@@ -56,7 +57,7 @@ def execute_code(code: str, timeout: int = 25) -> tuple[str, str, bool]:
         sys.stdout = stdout_capture
         sys.stderr = stderr_capture
 
-        exec(compile(code, '<sandbox>', 'exec'), {'__name__': '__main__'})
+        exec(compile(code, "<sandbox>", "exec"), {"__name__": "__main__"})
         success = True
 
     except TimeoutError as e:
@@ -81,15 +82,20 @@ def main():
 
     max_output = 50000
     if len(stdout) > max_output:
-        stdout = stdout[:max_output] + f"\n... [output truncated, {len(stdout) - max_output} bytes omitted]"
+        stdout = (
+            stdout[:max_output]
+            + f"\n... [output truncated, {len(stdout) - max_output} bytes omitted]"
+        )
     if len(stderr) > max_output:
-        stderr = stderr[:max_output] + f"\n... [output truncated, {len(stderr) - max_output} bytes omitted]"
+        stderr = (
+            stderr[:max_output]
+            + f"\n... [output truncated, {len(stderr) - max_output} bytes omitted]"
+        )
 
     sys.stdout.write(stdout)
     sys.stderr.write(stderr)
     sys.exit(0 if success else 1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
-

@@ -75,7 +75,9 @@ async def get_system(redis: OptionalRedis) -> dict[str, Any]:
                             elif "KiB" in mem_usage:
                                 memory_mb = float(mem_usage.replace("KiB", "").strip()) / 1024
                             elif "B" in mem_usage:
-                                memory_mb = float(mem_usage.replace("B", "").strip()) / (1024 * 1024)
+                                memory_mb = float(mem_usage.replace("B", "").strip()) / (
+                                    1024 * 1024
+                                )
                             else:
                                 memory_mb = 0.0
 

@@ -18,10 +18,9 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from redis.asyncio import BlockingConnectionPool as RedisConnectionPool
 
 from api import db, state
-from api.config import get_settings
-from api.errors import register_exception_handlers
 from api.batch.visitor_analytics import start_analytics_scheduler
 from api.bus import EventBus
+from api.config import get_settings
 from api.controllers.analytics_clicks import router as analytics_clicks_router
 from api.controllers.chat_analytics import router as chat_analytics_router
 from api.controllers.chat_history import router as chat_history_router
@@ -35,6 +34,7 @@ from api.controllers.visitors import router as visitors_router
 from api.controllers.when2meet import router as when2meet_router
 from api.controllers.ws_chat import router as ws_chat_router
 from api.controllers.ws_visitors import router as ws_visitors_router
+from api.errors import register_exception_handlers
 from api.middleware import HTTPLogMiddleware
 from api.redis_debug import wrap_redis_client
 

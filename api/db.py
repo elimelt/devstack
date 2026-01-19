@@ -9,7 +9,7 @@ from psycopg import errors as pg_errors
 from psycopg.types.json import Json
 
 # Import pool management from the centralized core module
-from api.db.core import _get_connection, close_pool, init_pool
+from api.db.core import _get_connection
 
 _logger = logging.getLogger(__name__)
 
@@ -513,7 +513,6 @@ async def w2m_upsert_availability(
         }
 
 
-
 async def upsert_visitor_stats(
     visitor_ip: str,
     period_start: datetime,
@@ -726,7 +725,6 @@ async def get_visitor_analytics_summary(
         }
 
 
-
 async def insert_click_events(events: list[dict[str, Any]], client_ip: str) -> int:
     """Insert a batch of click events into the events table.
 
@@ -798,39 +796,42 @@ async def fetch_click_events(
         rows = await conn.execute(sql, tuple(params))
         result: list[dict[str, Any]] = []
         async for row in rows:
-            result.append({
-                "timestamp": row[0].astimezone(UTC).isoformat(),
-                "event": row[1],
-            })
+            result.append(
+                {
+                    "timestamp": row[0].astimezone(UTC).isoformat(),
+                    "event": row[1],
+                }
+            )
         return result
-
 
 
 async def notes_get_or_create_category(name: str) -> int:
     """Get or create a category by name, returns the category id."""
     async with _get_connection() as conn:
-        row = await (await conn.execute(
-            "SELECT id FROM notes_categories WHERE name = %s", (name,)
-        )).fetchone()
+        row = await (
+            await conn.execute("SELECT id FROM notes_categories WHERE name = %s", (name,))
+        ).fetchone()
         if row:
             return row[0]
-        row = await (await conn.execute(
-            "INSERT INTO notes_categories (name) VALUES (%s) RETURNING id", (name,)
-        )).fetchone()
+        row = await (
+            await conn.execute(
+                "INSERT INTO notes_categories (name) VALUES (%s) RETURNING id", (name,)
+            )
+        ).fetchone()
         return row[0]
 
 
 async def notes_get_or_create_tag(name: str) -> int:
     """Get or create a tag by name, returns the tag id."""
     async with _get_connection() as conn:
-        row = await (await conn.execute(
-            "SELECT id FROM notes_tags WHERE name = %s", (name,)
-        )).fetchone()
+        row = await (
+            await conn.execute("SELECT id FROM notes_tags WHERE name = %s", (name,))
+        ).fetchone()
         if row:
             return row[0]
-        row = await (await conn.execute(
-            "INSERT INTO notes_tags (name) VALUES (%s) RETURNING id", (name,)
-        )).fetchone()
+        row = await (
+            await conn.execute("INSERT INTO notes_tags (name) VALUES (%s) RETURNING id", (name,))
+        ).fetchone()
         return row[0]
 
 
@@ -849,19 +850,25 @@ async def notes_upsert_document(
     async with _get_connection() as conn:
         category_id = None
         if category_name:
-            cat_row = await (await conn.execute(
-                "SELECT id FROM notes_categories WHERE name = %s", (category_name,)
-            )).fetchone()
+            cat_row = await (
+                await conn.execute(
+                    "SELECT id FROM notes_categories WHERE name = %s", (category_name,)
+                )
+            ).fetchone()
             if cat_row:
                 category_id = cat_row[0]
             else:
-                cat_row = await (await conn.execute(
-                    "INSERT INTO notes_categories (name) VALUES (%s) RETURNING id", (category_name,)
-                )).fetchone()
+                cat_row = await (
+                    await conn.execute(
+                        "INSERT INTO notes_categories (name) VALUES (%s) RETURNING id",
+                        (category_name,),
+                    )
+                ).fetchone()
                 category_id = cat_row[0]
 
-        row = await (await conn.execute(
-            """
+        row = await (
+            await conn.execute(
+                """
             INSERT INTO notes_documents (file_path, title, category_id, description, content, last_modified, git_commit_sha, created_at, updated_at)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (file_path) DO UPDATE SET
@@ -874,28 +881,39 @@ async def notes_upsert_document(
                 updated_at = EXCLUDED.updated_at
             RETURNING id
             """,
-            (file_path, title, category_id, description, content, now, git_commit_sha, now, now),
-        )).fetchone()
+                (
+                    file_path,
+                    title,
+                    category_id,
+                    description,
+                    content,
+                    now,
+                    git_commit_sha,
+                    now,
+                    now,
+                ),
+            )
+        ).fetchone()
         doc_id = row[0]
 
-        await conn.execute(
-            "DELETE FROM notes_document_tags WHERE document_id = %s", (doc_id,)
-        )
+        await conn.execute("DELETE FROM notes_document_tags WHERE document_id = %s", (doc_id,))
 
         if tags:
             for tag_name in tags:
                 tag_name = tag_name.strip()
                 if not tag_name:
                     continue
-                tag_row = await (await conn.execute(
-                    "SELECT id FROM notes_tags WHERE name = %s", (tag_name,)
-                )).fetchone()
+                tag_row = await (
+                    await conn.execute("SELECT id FROM notes_tags WHERE name = %s", (tag_name,))
+                ).fetchone()
                 if tag_row:
                     tag_id = tag_row[0]
                 else:
-                    tag_row = await (await conn.execute(
-                        "INSERT INTO notes_tags (name) VALUES (%s) RETURNING id", (tag_name,)
-                    )).fetchone()
+                    tag_row = await (
+                        await conn.execute(
+                            "INSERT INTO notes_tags (name) VALUES (%s) RETURNING id", (tag_name,)
+                        )
+                    ).fetchone()
                     tag_id = tag_row[0]
 
                 await conn.execute(
@@ -928,7 +946,6 @@ async def notes_delete_documents_not_in(file_paths: list[str]) -> int:
         async for _ in result:
             count += 1
         return count
-
 
 
 async def notes_fetch_documents(
@@ -975,16 +992,18 @@ async def notes_fetch_documents(
             )
             tags = [t[0] async for t in tag_rows]
 
-            result.append({
-                "id": row[0],
-                "file_path": row[1],
-                "title": row[2],
-                "category": row[3],
-                "description": row[4],
-                "last_modified": row[5].astimezone(UTC).isoformat() if row[5] else None,
-                "git_commit_sha": row[6],
-                "tags": tags,
-            })
+            result.append(
+                {
+                    "id": row[0],
+                    "file_path": row[1],
+                    "title": row[2],
+                    "category": row[3],
+                    "description": row[4],
+                    "last_modified": row[5].astimezone(UTC).isoformat() if row[5] else None,
+                    "git_commit_sha": row[6],
+                    "tags": tags,
+                }
+            )
         return result
 
 
@@ -1024,15 +1043,17 @@ async def notes_count_documents(
 async def notes_get_document_by_id(doc_id: int) -> dict[str, Any] | None:
     """Get a single document by ID, including full content."""
     async with _get_connection() as conn:
-        row = await (await conn.execute(
-            """
+        row = await (
+            await conn.execute(
+                """
             SELECT d.id, d.file_path, d.title, c.name as category, d.description, d.content, d.last_modified, d.git_commit_sha
             FROM notes_documents d
             LEFT JOIN notes_categories c ON d.category_id = c.id
             WHERE d.id = %s
             """,
-            (doc_id,),
-        )).fetchone()
+                (doc_id,),
+            )
+        ).fetchone()
 
         if not row:
             return None
@@ -1056,7 +1077,6 @@ async def notes_get_document_by_id(doc_id: int) -> dict[str, Any] | None:
         }
 
 
-
 async def notes_get_all_tags() -> list[dict[str, Any]]:
     """Get all tags with document counts."""
     async with _get_connection() as conn:
@@ -1071,11 +1091,13 @@ async def notes_get_all_tags() -> list[dict[str, Any]]:
         )
         result: list[dict[str, Any]] = []
         async for row in rows:
-            result.append({
-                "id": row[0],
-                "name": row[1],
-                "document_count": row[2],
-            })
+            result.append(
+                {
+                    "id": row[0],
+                    "name": row[1],
+                    "document_count": row[2],
+                }
+            )
         return result
 
 
@@ -1093,20 +1115,22 @@ async def notes_get_all_categories() -> list[dict[str, Any]]:
         )
         result: list[dict[str, Any]] = []
         async for row in rows:
-            result.append({
-                "id": row[0],
-                "name": row[1],
-                "document_count": row[2],
-            })
+            result.append(
+                {
+                    "id": row[0],
+                    "name": row[1],
+                    "document_count": row[2],
+                }
+            )
         return result
 
 
 async def notes_get_category_by_name(name: str) -> dict[str, Any] | None:
     """Get a category by name."""
     async with _get_connection() as conn:
-        row = await (await conn.execute(
-            "SELECT id, name FROM notes_categories WHERE name = %s", (name,)
-        )).fetchone()
+        row = await (
+            await conn.execute("SELECT id, name FROM notes_categories WHERE name = %s", (name,))
+        ).fetchone()
         if not row:
             return None
         return {"id": row[0], "name": row[1]}
@@ -1115,9 +1139,9 @@ async def notes_get_category_by_name(name: str) -> dict[str, Any] | None:
 async def notes_get_tag_by_name(name: str) -> dict[str, Any] | None:
     """Get a tag by name."""
     async with _get_connection() as conn:
-        row = await (await conn.execute(
-            "SELECT id, name FROM notes_tags WHERE name = %s", (name,)
-        )).fetchone()
+        row = await (
+            await conn.execute("SELECT id, name FROM notes_tags WHERE name = %s", (name,))
+        ).fetchone()
         if not row:
             return None
         return {"id": row[0], "name": row[1]}
@@ -1126,9 +1150,11 @@ async def notes_get_tag_by_name(name: str) -> dict[str, Any] | None:
 async def notes_get_last_sync_sha() -> str | None:
     """Get the most recent git commit SHA from synced documents."""
     async with _get_connection() as conn:
-        row = await (await conn.execute(
-            "SELECT git_commit_sha FROM notes_documents WHERE git_commit_sha IS NOT NULL ORDER BY updated_at DESC LIMIT 1"
-        )).fetchone()
+        row = await (
+            await conn.execute(
+                "SELECT git_commit_sha FROM notes_documents WHERE git_commit_sha IS NOT NULL ORDER BY updated_at DESC LIMIT 1"
+            )
+        ).fetchone()
         if not row:
             return None
         return row[0]
@@ -1150,7 +1176,7 @@ async def notes_update_embeddings(doc_ids: list[int], embeddings: list) -> int:
     now = datetime.now(UTC)
     updated = 0
     async with _get_connection() as conn:
-        for doc_id, embedding in zip(doc_ids, embeddings):
+        for doc_id, embedding in zip(doc_ids, embeddings, strict=False):
             vec_str = f"[{','.join(map(str, embedding))}]"
             await conn.execute(
                 "UPDATE notes_documents SET content_embedding = %s::vector, embedding_updated_at = %s WHERE id = %s",
@@ -1183,17 +1209,19 @@ async def notes_get_documents_by_ids(doc_ids: list[int]) -> list[dict[str, Any]]
                 (row[0],),
             )
             tags = [t[0] async for t in tag_rows]
-            result.append({
-                "id": row[0],
-                "file_path": row[1],
-                "title": row[2],
-                "category": row[3],
-                "description": row[4],
-                "content": row[5],
-                "last_modified": row[6].astimezone(UTC).isoformat() if row[6] else None,
-                "git_commit_sha": row[7],
-                "tags": tags,
-            })
+            result.append(
+                {
+                    "id": row[0],
+                    "file_path": row[1],
+                    "title": row[2],
+                    "category": row[3],
+                    "description": row[4],
+                    "content": row[5],
+                    "last_modified": row[6].astimezone(UTC).isoformat() if row[6] else None,
+                    "git_commit_sha": row[7],
+                    "tags": tags,
+                }
+            )
         return result
 
 
@@ -1242,17 +1270,19 @@ async def notes_fulltext_search(
                 (row[0],),
             )
             tags = [t[0] async for t in tag_rows]
-            result.append({
-                "id": row[0],
-                "file_path": row[1],
-                "title": row[2],
-                "category": row[3],
-                "description": row[4],
-                "last_modified": row[5].astimezone(UTC).isoformat() if row[5] else None,
-                "git_commit_sha": row[6],
-                "rank": float(row[7]),
-                "tags": tags,
-            })
+            result.append(
+                {
+                    "id": row[0],
+                    "file_path": row[1],
+                    "title": row[2],
+                    "category": row[3],
+                    "description": row[4],
+                    "last_modified": row[5].astimezone(UTC).isoformat() if row[5] else None,
+                    "git_commit_sha": row[6],
+                    "rank": float(row[7]),
+                    "tags": tags,
+                }
+            )
         return result
 
 
@@ -1303,25 +1333,28 @@ async def notes_vector_search(
                 (row[0],),
             )
             tags = [t[0] async for t in tag_rows]
-            result.append({
-                "id": row[0],
-                "file_path": row[1],
-                "title": row[2],
-                "category": row[3],
-                "description": row[4],
-                "last_modified": row[5].astimezone(UTC).isoformat() if row[5] else None,
-                "git_commit_sha": row[6],
-                "similarity": float(row[7]),
-                "tags": tags,
-            })
+            result.append(
+                {
+                    "id": row[0],
+                    "file_path": row[1],
+                    "title": row[2],
+                    "category": row[3],
+                    "description": row[4],
+                    "last_modified": row[5].astimezone(UTC).isoformat() if row[5] else None,
+                    "git_commit_sha": row[6],
+                    "similarity": float(row[7]),
+                    "tags": tags,
+                }
+            )
         return result
 
 
 async def notes_get_embedding_stats() -> dict[str, Any]:
     """Get statistics about document embeddings."""
     async with _get_connection() as conn:
-        row = await (await conn.execute(
-            """
+        row = await (
+            await conn.execute(
+                """
             SELECT
                 COUNT(*) as total_docs,
                 COUNT(content_embedding) as docs_with_embeddings,
@@ -1330,7 +1363,8 @@ async def notes_get_embedding_stats() -> dict[str, Any]:
                 MAX(embedding_updated_at) as newest_embedding_update
             FROM notes_documents
             """
-        )).fetchone()
+            )
+        ).fetchone()
         return {
             "total_docs": row[0],
             "docs_with_embeddings": row[1],
@@ -1338,7 +1372,6 @@ async def notes_get_embedding_stats() -> dict[str, Any]:
             "oldest_embedding_update": row[3].astimezone(UTC).isoformat() if row[3] else None,
             "newest_embedding_update": row[4].astimezone(UTC).isoformat() if row[4] else None,
         }
-
 
 
 async def sync_job_create(commit_sha: str | None, file_paths: list[str]) -> int:
@@ -1369,15 +1402,17 @@ async def sync_job_create(commit_sha: str | None, file_paths: list[str]) -> int:
 async def sync_job_get(job_id: int) -> dict[str, Any] | None:
     """Get a sync job by ID with item counts."""
     async with _get_connection() as conn:
-        row = await (await conn.execute(
-            """
+        row = await (
+            await conn.execute(
+                """
             SELECT id, status, commit_sha, total_items, completed_items, failed_items,
                    created_at, started_at, completed_at, error_message, rate_limit_reset_at,
                    last_activity_at
             FROM notes_sync_jobs WHERE id = %s
             """,
-            (job_id,),
-        )).fetchone()
+                (job_id,),
+            )
+        ).fetchone()
         if not row:
             return None
         return {
@@ -1411,16 +1446,18 @@ async def sync_job_list(limit: int = 20, status: str | None = None) -> list[dict
             )
         result = []
         async for row in rows:
-            result.append({
-                "id": row[0],
-                "status": row[1],
-                "commit_sha": row[2],
-                "total_items": row[3],
-                "completed_items": row[4],
-                "failed_items": row[5],
-                "created_at": row[6].astimezone(UTC).isoformat() if row[6] else None,
-                "completed_at": row[7].astimezone(UTC).isoformat() if row[7] else None,
-            })
+            result.append(
+                {
+                    "id": row[0],
+                    "status": row[1],
+                    "commit_sha": row[2],
+                    "total_items": row[3],
+                    "completed_items": row[4],
+                    "failed_items": row[5],
+                    "created_at": row[6].astimezone(UTC).isoformat() if row[6] else None,
+                    "completed_at": row[7].astimezone(UTC).isoformat() if row[7] else None,
+                }
+            )
         return result
 
 
@@ -1487,7 +1524,10 @@ async def sync_job_get_failed_items(job_id: int) -> list[dict[str, Any]]:
             "SELECT id, file_path, retry_count, last_error FROM notes_sync_job_items WHERE job_id = %s AND status = 'failed' ORDER BY id",
             (job_id,),
         )
-        return [{"id": row[0], "file_path": row[1], "retry_count": row[2], "last_error": row[3]} async for row in rows]
+        return [
+            {"id": row[0], "file_path": row[1], "retry_count": row[2], "last_error": row[3]}
+            async for row in rows
+        ]
 
 
 async def sync_job_item_update(
@@ -1528,8 +1568,9 @@ async def sync_job_reset_failed_items(job_id: int, max_retries: int = 5) -> int:
 async def sync_job_get_resumable() -> dict[str, Any] | None:
     """Get the most recent job that can be resumed (paused or running with pending items)."""
     async with _get_connection() as conn:
-        row = await (await conn.execute(
-            """
+        row = await (
+            await conn.execute(
+                """
             SELECT j.id, j.status, j.commit_sha, j.rate_limit_reset_at
             FROM notes_sync_jobs j
             WHERE j.status IN ('paused', 'running', 'pending')
@@ -1537,7 +1578,8 @@ async def sync_job_get_resumable() -> dict[str, Any] | None:
             ORDER BY j.created_at DESC
             LIMIT 1
             """,
-        )).fetchone()
+            )
+        ).fetchone()
         if not row:
             return None
         return {
@@ -1561,10 +1603,12 @@ async def sync_job_get_all_completed_paths(job_id: int) -> list[str]:
 async def sync_job_get_skipped_count(job_id: int) -> int:
     """Get count of skipped items (exceeded max retries) for a job."""
     async with _get_connection() as conn:
-        row = await (await conn.execute(
-            "SELECT COUNT(*) FROM notes_sync_job_items WHERE job_id = %s AND status = 'skipped'",
-            (job_id,),
-        )).fetchone()
+        row = await (
+            await conn.execute(
+                "SELECT COUNT(*) FROM notes_sync_job_items WHERE job_id = %s AND status = 'skipped'",
+                (job_id,),
+            )
+        ).fetchone()
         return row[0] if row else 0
 
 
@@ -1614,17 +1658,19 @@ async def sync_job_list_all_failed_items(
 
         result = []
         async for row in rows:
-            result.append({
-                "id": row[0],
-                "job_id": row[1],
-                "file_path": row[2],
-                "status": row[3],
-                "retry_count": row[4],
-                "last_error": row[5],
-                "last_attempt_at": row[6].astimezone(UTC).isoformat() if row[6] else None,
-                "created_at": row[7].astimezone(UTC).isoformat() if row[7] else None,
-                "commit_sha": row[8],
-            })
+            result.append(
+                {
+                    "id": row[0],
+                    "job_id": row[1],
+                    "file_path": row[2],
+                    "status": row[3],
+                    "retry_count": row[4],
+                    "last_error": row[5],
+                    "last_attempt_at": row[6].astimezone(UTC).isoformat() if row[6] else None,
+                    "created_at": row[7].astimezone(UTC).isoformat() if row[7] else None,
+                    "commit_sha": row[8],
+                }
+            )
         return result
 
 

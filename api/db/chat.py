@@ -116,4 +116,3 @@ async def soft_delete_chat_history(
         async for _ in rows:
             count += 1
         return count
-

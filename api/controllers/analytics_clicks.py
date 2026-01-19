@@ -22,9 +22,7 @@ _logger.propagate = False
 
 class ClickEventsBatchRequest(BaseModel):
     topic: str = Field(default="clicks", description="Analytics topic (should be 'clicks')")
-    events: list[dict[str, Any]] = Field(
-        default_factory=list, description="Array of click events"
-    )
+    events: list[dict[str, Any]] = Field(default_factory=list, description="Array of click events")
 
 
 @router.get("/clicks/analytics", response_model=ClickEventsResponse)
@@ -72,7 +70,9 @@ async def get_click_events(
 
 @router.post("/clicks/analytics", status_code=202)
 async def receive_click_events(request: Request, body: ClickEventsBatchRequest) -> dict[str, Any]:
-    client_ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown")
+    client_ip = request.headers.get(
+        "x-forwarded-for", request.client.host if request.client else "unknown"
+    )
     if "," in client_ip:
         client_ip = client_ip.split(",")[0].strip()
 
@@ -93,4 +93,3 @@ async def receive_click_events(request: Request, body: ClickEventsBatchRequest) 
     except Exception as e:
         _logger.exception("Failed to insert click events")
         return {"accepted": 0, "message": f"Events received but not stored: {e}"}
-

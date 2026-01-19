@@ -56,7 +56,12 @@ async def websocket_chat(websocket: WebSocket, channel: str) -> None:
             except Exception as e:
                 _logger.debug("[ws_chat] Failed to parse payload: %s", e)
                 continue
-            _logger.info("[ws_chat] Human message from %s on channel=%s: %s", sender, channel, text[:200] if text else "<empty>")
+            _logger.info(
+                "[ws_chat] Human message from %s on channel=%s: %s",
+                sender,
+                channel,
+                text[:200] if text else "<empty>",
+            )
             event = build_chat_message(channel=channel, sender=sender, text=text)
             _logger.debug("[ws_chat] Built event: %s", event)
             await publish_chat_message(state.event_bus, channel, event)
@@ -69,10 +74,8 @@ async def websocket_chat(websocket: WebSocket, channel: str) -> None:
 
         # Cleanup pubsub with error handling
         try:
-            await asyncio.wait_for(
-                pubsub.unsubscribe(EventBus.chat_channel(channel)), timeout=2.0
-            )
-        except asyncio.TimeoutError:
+            await asyncio.wait_for(pubsub.unsubscribe(EventBus.chat_channel(channel)), timeout=2.0)
+        except TimeoutError:
             _logger.warning("Timeout unsubscribing from chat channel %s", channel)
         except Exception as e:
             _logger.warning("Error unsubscribing from chat channel %s: %s", channel, e)
@@ -82,7 +85,7 @@ async def websocket_chat(websocket: WebSocket, channel: str) -> None:
                 await asyncio.wait_for(pubsub.aclose(), timeout=2.0)
             else:
                 await asyncio.wait_for(pubsub.close(), timeout=2.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             _logger.warning("Timeout closing pubsub connection for channel %s", channel)
         except Exception as e:
             _logger.warning("Error closing pubsub for channel %s: %s", channel, e)

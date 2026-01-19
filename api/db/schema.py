@@ -6,7 +6,7 @@ Migrations are stored in the migrations/ subdirectory as versioned SQL files.
 
 import logging
 
-from api.db.migrations import run_migrations, get_current_version, get_migration_history
+from api.db.migrations import get_current_version, get_migration_history, run_migrations
 
 logger = logging.getLogger(__name__)
 
@@ -39,4 +39,3 @@ async def get_schema_info() -> dict:
         "current_version": await get_current_version(),
         "migration_history": await get_migration_history(),
     }
-

@@ -17,12 +17,11 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from redis.asyncio import BlockingConnectionPool as RedisConnectionPool
 
 from api import db, state
-from api.config import get_settings
-from api.errors import register_exception_handlers
 from api.agents.augment_agent import start_augment_agent
 from api.agents.gemini_agent import start_agents as start_gemini_agents
 from api.batch.notes_sync_scheduler import start_notes_sync_scheduler
 from api.bus import EventBus
+from api.config import get_settings
 from api.controllers.analytics_clicks import router as analytics_clicks_router
 from api.controllers.augment_chat import router as augment_chat_router
 from api.controllers.cache import router as cache_router
@@ -31,6 +30,7 @@ from api.controllers.health import router as health_router
 from api.controllers.notes import router as notes_router
 from api.controllers.notes_search import router as notes_search_router
 from api.controllers.when2meet import router as when2meet_router
+from api.errors import register_exception_handlers
 from api.redis_debug import wrap_redis_client
 
 app = FastAPI(

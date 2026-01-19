@@ -3,22 +3,21 @@
 import asyncio
 import logging
 from datetime import datetime
-from typing import Any
 
 from google import genai
 from google.genai import types
 from google.genai.errors import APIError
 
 from api.agents.common import (
-    AgentConfig,
-    BaseAgent,
     COMPACT_STYLE,
     PERSONAS,
+    AgentConfig,
+    BaseAgent,
     build_agent_prompt,
     env,
     is_duplicate_message,
 )
-from api.agents.tools import ASYNC_TOOL_MAP, get_tools_description
+from api.agents.tools import ASYNC_TOOL_MAP
 
 _logger = logging.getLogger("api.agents.gemini")
 if not _logger.handlers:
@@ -35,75 +34,100 @@ _logger.propagate = False
 # ============================================================================
 
 TOOL_DECLARATIONS = [
-    types.Tool(function_declarations=[
-        types.FunctionDeclaration(
-            name="tool_fetch_url",
-            description="Fetch content from a public URL. Returns plain text.",
-            parameters=types.Schema(
-                type=types.Type.OBJECT,
-                properties={
-                    "url": types.Schema(type=types.Type.STRING, description="URL to fetch"),
-                    "max_bytes": types.Schema(type=types.Type.INTEGER, description="Max size (default 5000)"),
-                },
-                required=["url"],
-            ),
-        )
-    ]),
-    types.Tool(function_declarations=[
-        types.FunctionDeclaration(
-            name="tool_search_notes",
-            description="Search knowledge base. Returns titles, descriptions, relevance scores.",
-            parameters=types.Schema(
-                type=types.Type.OBJECT,
-                properties={
-                    "query": types.Schema(type=types.Type.STRING, description="Search query"),
-                    "mode": types.Schema(type=types.Type.STRING, description="'fulltext', 'semantic', or 'hybrid' (default)"),
-                    "limit": types.Schema(type=types.Type.INTEGER, description="Max results (default 10)"),
-                },
-                required=["query"],
-            ),
-        )
-    ]),
-    types.Tool(function_declarations=[
-        types.FunctionDeclaration(
-            name="tool_get_note",
-            description="Get full content of a note by ID.",
-            parameters=types.Schema(
-                type=types.Type.OBJECT,
-                properties={
-                    "doc_id": types.Schema(type=types.Type.INTEGER, description="Document ID from search results"),
-                },
-                required=["doc_id"],
-            ),
-        )
-    ]),
-    types.Tool(function_declarations=[
-        types.FunctionDeclaration(
-            name="tool_run_python",
-            description="Execute Python in sandbox. Has numpy, pandas, scipy, matplotlib. 30s timeout.",
-            parameters=types.Schema(
-                type=types.Type.OBJECT,
-                properties={
-                    "code": types.Schema(type=types.Type.STRING, description="Python code to run"),
-                },
-                required=["code"],
-            ),
-        )
-    ]),
-    types.Tool(function_declarations=[
-        types.FunctionDeclaration(
-            name="tool_query_chat",
-            description="Search chat history by keyword.",
-            parameters=types.Schema(
-                type=types.Type.OBJECT,
-                properties={
-                    "channel": types.Schema(type=types.Type.STRING, description="Channel name"),
-                    "keyword": types.Schema(type=types.Type.STRING, description="Keyword filter"),
-                    "limit": types.Schema(type=types.Type.INTEGER, description="Max messages (default 50)"),
-                },
-            ),
-        )
-    ]),
+    types.Tool(
+        function_declarations=[
+            types.FunctionDeclaration(
+                name="tool_fetch_url",
+                description="Fetch content from a public URL. Returns plain text.",
+                parameters=types.Schema(
+                    type=types.Type.OBJECT,
+                    properties={
+                        "url": types.Schema(type=types.Type.STRING, description="URL to fetch"),
+                        "max_bytes": types.Schema(
+                            type=types.Type.INTEGER, description="Max size (default 5000)"
+                        ),
+                    },
+                    required=["url"],
+                ),
+            )
+        ]
+    ),
+    types.Tool(
+        function_declarations=[
+            types.FunctionDeclaration(
+                name="tool_search_notes",
+                description="Search knowledge base. Returns titles, descriptions, relevance scores.",
+                parameters=types.Schema(
+                    type=types.Type.OBJECT,
+                    properties={
+                        "query": types.Schema(type=types.Type.STRING, description="Search query"),
+                        "mode": types.Schema(
+                            type=types.Type.STRING,
+                            description="'fulltext', 'semantic', or 'hybrid' (default)",
+                        ),
+                        "limit": types.Schema(
+                            type=types.Type.INTEGER, description="Max results (default 10)"
+                        ),
+                    },
+                    required=["query"],
+                ),
+            )
+        ]
+    ),
+    types.Tool(
+        function_declarations=[
+            types.FunctionDeclaration(
+                name="tool_get_note",
+                description="Get full content of a note by ID.",
+                parameters=types.Schema(
+                    type=types.Type.OBJECT,
+                    properties={
+                        "doc_id": types.Schema(
+                            type=types.Type.INTEGER, description="Document ID from search results"
+                        ),
+                    },
+                    required=["doc_id"],
+                ),
+            )
+        ]
+    ),
+    types.Tool(
+        function_declarations=[
+            types.FunctionDeclaration(
+                name="tool_run_python",
+                description="Execute Python in sandbox. Has numpy, pandas, scipy, matplotlib. 30s timeout.",
+                parameters=types.Schema(
+                    type=types.Type.OBJECT,
+                    properties={
+                        "code": types.Schema(
+                            type=types.Type.STRING, description="Python code to run"
+                        ),
+                    },
+                    required=["code"],
+                ),
+            )
+        ]
+    ),
+    types.Tool(
+        function_declarations=[
+            types.FunctionDeclaration(
+                name="tool_query_chat",
+                description="Search chat history by keyword.",
+                parameters=types.Schema(
+                    type=types.Type.OBJECT,
+                    properties={
+                        "channel": types.Schema(type=types.Type.STRING, description="Channel name"),
+                        "keyword": types.Schema(
+                            type=types.Type.STRING, description="Keyword filter"
+                        ),
+                        "limit": types.Schema(
+                            type=types.Type.INTEGER, description="Max messages (default 50)"
+                        ),
+                    },
+                ),
+            )
+        ]
+    ),
 ]
 
 
@@ -128,6 +152,7 @@ def _get_client() -> genai.Client:
 # ============================================================================
 # GEMINI AGENT CLASS
 # ============================================================================
+
 
 class GeminiAgent(BaseAgent):
     """Gemini-powered AI agent for chat conversations."""
@@ -154,8 +179,10 @@ class GeminiAgent(BaseAgent):
                 break
             except APIError as e:
                 if hasattr(e, "code") and e.code == 429:
-                    delay = min(30 * (2 ** attempt), 300)
-                    self.logger.warning("[%s] Rate limited, retry in %ds", self.config.effective_sender, delay)
+                    delay = min(30 * (2**attempt), 300)
+                    self.logger.warning(
+                        "[%s] Rate limited, retry in %ds", self.config.effective_sender, delay
+                    )
                     await asyncio.sleep(delay)
                     continue
                 self.logger.error("[%s] API error: %s", self.config.effective_sender, e)
@@ -179,12 +206,14 @@ class GeminiAgent(BaseAgent):
                         result = f"ERROR: {e}"
                 else:
                     result = f"ERROR: Unknown tool {call.name}"
-                tool_results.append(types.Part(
-                    function_response=types.FunctionResponse(
-                        name=call.name,
-                        response={"result": result},
+                tool_results.append(
+                    types.Part(
+                        function_response=types.FunctionResponse(
+                            name=call.name,
+                            response={"result": result},
+                        )
                     )
-                ))
+                )
 
             contents.append(response.candidates[0].content)
             contents.append(types.Content(role="tool", parts=tool_results))
@@ -231,7 +260,9 @@ class GeminiAgent(BaseAgent):
         if "**Recent:**" in prompt:
             prompt = prompt.replace("**Recent:**", f"{tools_list}\n\n**Recent:**")
         elif "**Start the conversation.**" in prompt:
-            prompt = prompt.replace("**Start the conversation.**", f"{tools_list}\n\n**Start the conversation.**")
+            prompt = prompt.replace(
+                "**Start the conversation.**", f"{tools_list}\n\n**Start the conversation.**"
+            )
 
         return prompt
 
@@ -249,7 +280,9 @@ def _create_agent_config(agent_index: int, persona_key: str | None) -> AgentConf
         sender=env("GEMINI_AGENT_SENDER", "agent:gemini"),
         agent_index=agent_index,
         persona_key=persona_key,
-        channels=[c.strip() for c in env("GEMINI_AGENT_CHANNELS", "general").split(",") if c.strip()],
+        channels=[
+            c.strip() for c in env("GEMINI_AGENT_CHANNELS", "general").split(",") if c.strip()
+        ],
         min_sleep_sec=int(env("GEMINI_AGENT_MIN_SLEEP_SEC", "10800")),
         max_sleep_sec=int(env("GEMINI_AGENT_MAX_SLEEP_SEC", "10800")),
         global_cooldown_sec=float(env("GEMINI_AGENT_GLOBAL_COOLDOWN_SEC", "120")),
@@ -262,6 +295,7 @@ def _create_agent_config(agent_index: int, persona_key: str | None) -> AgentConf
 # ============================================================================
 # ENTRYPOINT
 # ============================================================================
+
 
 async def start_agents(stop_event: asyncio.Event) -> list[asyncio.Task]:
     """Start the Gemini agent(s).
@@ -283,10 +317,15 @@ async def start_agents(stop_event: asyncio.Event) -> list[asyncio.Task]:
         config = _create_agent_config(i, persona_key)
         agent = GeminiAgent(config)
 
-        persona_name = PERSONAS.get(persona_key).name if persona_key and persona_key in PERSONAS else "default"
+        persona_name = (
+            PERSONAS.get(persona_key).name if persona_key and persona_key in PERSONAS else "default"
+        )
         _logger.info(
             "Starting Gemini agent sender=%s persona=%s channels=%s model=%s",
-            config.effective_sender, persona_name, config.channels, config.model
+            config.effective_sender,
+            persona_name,
+            config.channels,
+            config.model,
         )
 
         task = asyncio.create_task(agent.run(stop_event))

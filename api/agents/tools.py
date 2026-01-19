@@ -25,9 +25,11 @@ logger = logging.getLogger("api.agents.tools")
 # TOOL DEFINITIONS
 # ============================================================================
 
+
 @dataclass
 class ToolDefinition:
     """Definition of a tool for documentation and prompt building."""
+
     name: str
     description: str
     parameters: dict[str, str]  # param_name -> description
@@ -108,7 +110,9 @@ def get_tools_description(tool_names: list[str] | None = None, compact: bool = F
             params = ", ".join(tool.parameters.keys())
             lines.append(f"- **{tool.name}({params})**: {tool.description}")
         lines.append("")
-        lines.append("**USE CODE TO TEST CLAIMS.** Don't say \"the complexity is O(n²)\"—write 10 lines and measure it. Don't speculate about probability—compute it. Don't describe an algorithm—implement it and show output. This catches wrong intuitions and grounds discussion in reality. Keep programs under 20 lines.")
+        lines.append(
+            "**USE CODE TO TEST CLAIMS.** Don't say \"the complexity is O(n²)\"—write 10 lines and measure it. Don't speculate about probability—compute it. Don't describe an algorithm—implement it and show output. This catches wrong intuitions and grounds discussion in reality. Keep programs under 20 lines."
+        )
 
     return "\n".join(lines)
 
@@ -122,6 +126,7 @@ def _run_async(coro: Any) -> Any:
 
     if loop is not None:
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor() as pool:
             future = pool.submit(asyncio.run, coro)
             return future.result(timeout=30)
@@ -165,32 +170,44 @@ async def search_notes_async(
         results: list[dict] = []
         if search_mode == "fulltext":
             results = await db.notes_fulltext_search(
-                query=query, limit=result_limit, offset=0,
-                category_id=category_id, tag_ids=tag_ids
+                query=query, limit=result_limit, offset=0, category_id=category_id, tag_ids=tag_ids
             )
         elif search_mode == "semantic":
             try:
                 from api.notes_embeddings import generate_query_embedding, is_model_available
+
                 if not is_model_available():
                     results = await db.notes_fulltext_search(
-                        query=query, limit=result_limit, offset=0,
-                        category_id=category_id, tag_ids=tag_ids
+                        query=query,
+                        limit=result_limit,
+                        offset=0,
+                        category_id=category_id,
+                        tag_ids=tag_ids,
                     )
                 else:
                     query_embedding = generate_query_embedding(query)
                     results = await db.notes_vector_search(
-                        embedding=query_embedding, limit=result_limit, offset=0,
-                        category_id=category_id, tag_ids=tag_ids
+                        embedding=query_embedding,
+                        limit=result_limit,
+                        offset=0,
+                        category_id=category_id,
+                        tag_ids=tag_ids,
                     )
             except ImportError:
                 results = await db.notes_fulltext_search(
-                    query=query, limit=result_limit, offset=0,
-                    category_id=category_id, tag_ids=tag_ids
+                    query=query,
+                    limit=result_limit,
+                    offset=0,
+                    category_id=category_id,
+                    tag_ids=tag_ids,
                 )
         else:
             fts_results = await db.notes_fulltext_search(
-                query=query, limit=result_limit + 10, offset=0,
-                category_id=category_id, tag_ids=tag_ids
+                query=query,
+                limit=result_limit + 10,
+                offset=0,
+                category_id=category_id,
+                tag_ids=tag_ids,
             )
             results = fts_results[:result_limit]
 
@@ -305,6 +322,7 @@ def run_python(code: str) -> str:
 # URL FETCH TOOL
 # ============================================================================
 
+
 async def fetch_url_async(url: str, max_bytes: int = 5000) -> str:
     """Fetch content from a public URL (async version)."""
     import requests
@@ -313,14 +331,12 @@ async def fetch_url_async(url: str, max_bytes: int = 5000) -> str:
     if parsed.scheme not in ("http", "https"):
         return "ERROR: unsupported scheme"
     try:
-        resp = await asyncio.to_thread(
-            lambda: requests.get(url, timeout=5, stream=True)
-        )
+        resp = await asyncio.to_thread(lambda: requests.get(url, timeout=5, stream=True))
         resp.raise_for_status()
         chunks, size = [], 0
         for chunk in resp.iter_content(chunk_size=1024):
             if size + len(chunk) > max_bytes:
-                chunks.append(chunk[:max_bytes - size])
+                chunks.append(chunk[: max_bytes - size])
                 break
             chunks.append(chunk)
             size += len(chunk)
@@ -338,6 +354,7 @@ def fetch_url(url: str, max_bytes: int = 5000) -> str:
 # ============================================================================
 # CHAT QUERY TOOL
 # ============================================================================
+
 
 async def query_chat_async(
     channel: str = "general",
@@ -420,4 +437,3 @@ ASYNC_TOOL_MAP: dict[str, AsyncToolFunction] = {
 
 # Backward compatibility: keep TOOLS as an alias
 TOOLS = SYNC_TOOLS
-

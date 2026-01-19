@@ -1,13 +1,14 @@
-import pytest
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 from api.controllers.notes import (
-    list_notes,
-    list_tags,
-    list_categories,
+    get_note,
     get_notes_by_category,
     get_notes_by_tag,
-    get_note,
+    list_categories,
+    list_notes,
+    list_tags,
     trigger_sync,
 )
 
@@ -26,7 +27,9 @@ def _make_doc(id: int, title: str = "Test Doc", file_path: str = "/test/path.md"
     }
 
 
-def _make_doc_with_content(id: int, title: str = "Test Doc", file_path: str = "/test/path.md", content: str = "# Content") -> dict:
+def _make_doc_with_content(
+    id: int, title: str = "Test Doc", file_path: str = "/test/path.md", content: str = "# Content"
+) -> dict:
     """Helper to create a valid document mock with content."""
     doc = _make_doc(id, title, file_path)
     doc["content"] = content
@@ -41,10 +44,12 @@ class TestListNotes:
 
     @pytest.mark.asyncio
     async def test_default_pagination(self, mock_db):
-        mock_db.notes_fetch_documents = AsyncMock(return_value=[
-            _make_doc(1, "Doc 1"),
-            _make_doc(2, "Doc 2"),
-        ])
+        mock_db.notes_fetch_documents = AsyncMock(
+            return_value=[
+                _make_doc(1, "Doc 1"),
+                _make_doc(2, "Doc 2"),
+            ]
+        )
         mock_db.notes_count_documents = AsyncMock(return_value=2)
 
         result = await list_notes(limit=50, offset=0)
@@ -87,7 +92,9 @@ class TestGetNote:
 
     @pytest.mark.asyncio
     async def test_valid_id(self, mock_db):
-        mock_db.notes_get_document_by_id = AsyncMock(return_value=_make_doc_with_content(1, "Test Doc"))
+        mock_db.notes_get_document_by_id = AsyncMock(
+            return_value=_make_doc_with_content(1, "Test Doc")
+        )
 
         result = await get_note(doc_id=1)
 
@@ -99,6 +106,7 @@ class TestGetNote:
         mock_db.notes_get_document_by_id = AsyncMock(return_value=None)
 
         from fastapi import HTTPException
+
         with pytest.raises(HTTPException) as exc_info:
             await get_note(doc_id=999)
 
@@ -128,6 +136,7 @@ class TestGetNotesByCategory:
         mock_db.notes_get_category_by_name = AsyncMock(return_value=None)
 
         from fastapi import HTTPException
+
         with pytest.raises(HTTPException) as exc_info:
             await get_notes_by_category(category="Unknown", limit=50, offset=0)
 
@@ -157,6 +166,7 @@ class TestGetNotesByTag:
         mock_db.notes_get_tag_by_name = AsyncMock(return_value=None)
 
         from fastapi import HTTPException
+
         with pytest.raises(HTTPException) as exc_info:
             await get_notes_by_tag(tag="nonexistent", limit=50, offset=0)
 
@@ -171,10 +181,12 @@ class TestListTags:
 
     @pytest.mark.asyncio
     async def test_returns_tags(self, mock_db):
-        mock_db.notes_get_all_tags = AsyncMock(return_value=[
-            {"id": 1, "name": "python", "document_count": 5},
-            {"id": 2, "name": "testing", "document_count": 3},
-        ])
+        mock_db.notes_get_all_tags = AsyncMock(
+            return_value=[
+                {"id": 1, "name": "python", "document_count": 5},
+                {"id": 2, "name": "testing", "document_count": 3},
+            ]
+        )
 
         result = await list_tags()
 
@@ -190,10 +202,12 @@ class TestListCategories:
 
     @pytest.mark.asyncio
     async def test_returns_categories(self, mock_db):
-        mock_db.notes_get_all_categories = AsyncMock(return_value=[
-            {"id": 1, "name": "Networks", "document_count": 10},
-            {"id": 2, "name": "Algorithms", "document_count": 8},
-        ])
+        mock_db.notes_get_all_categories = AsyncMock(
+            return_value=[
+                {"id": 1, "name": "Networks", "document_count": 10},
+                {"id": 2, "name": "Algorithms", "document_count": 8},
+            ]
+        )
 
         result = await list_categories()
 
@@ -218,6 +232,7 @@ class TestTriggerSync:
     async def test_missing_env_returns_503(self):
         with patch("api.controllers.notes.NOTES_SYNC_SECRET", ""):
             from fastapi import HTTPException
+
             with pytest.raises(HTTPException) as exc_info:
                 await trigger_sync(x_sync_secret="some-secret")
 
@@ -227,6 +242,7 @@ class TestTriggerSync:
     async def test_missing_header_returns_401(self):
         with patch("api.controllers.notes.NOTES_SYNC_SECRET", "valid-secret"):
             from fastapi import HTTPException
+
             with pytest.raises(HTTPException) as exc_info:
                 await trigger_sync(x_sync_secret=None)
 
@@ -236,6 +252,7 @@ class TestTriggerSync:
     async def test_invalid_secret_returns_401(self):
         with patch("api.controllers.notes.NOTES_SYNC_SECRET", "valid-secret"):
             from fastapi import HTTPException
+
             with pytest.raises(HTTPException) as exc_info:
                 await trigger_sync(x_sync_secret="wrong-secret")
 
@@ -243,9 +260,10 @@ class TestTriggerSync:
 
     @pytest.mark.asyncio
     async def test_valid_secret_triggers_sync(self, mock_sync):
-        with patch("api.controllers.notes.NOTES_SYNC_SECRET", "valid-secret"), \
-             patch("api.controllers.notes.os.getenv", return_value=None):
-
+        with (
+            patch("api.controllers.notes.NOTES_SYNC_SECRET", "valid-secret"),
+            patch("api.controllers.notes.os.getenv", return_value=None),
+        ):
             result = await trigger_sync(x_sync_secret="valid-secret")
 
             assert result["job_status"] == "completed"
@@ -254,10 +272,10 @@ class TestTriggerSync:
 
     @pytest.mark.asyncio
     async def test_force_parameter_passed(self, mock_sync):
-        with patch("api.controllers.notes.NOTES_SYNC_SECRET", "valid-secret"), \
-             patch("api.controllers.notes.os.getenv", return_value=None):
-
+        with (
+            patch("api.controllers.notes.NOTES_SYNC_SECRET", "valid-secret"),
+            patch("api.controllers.notes.os.getenv", return_value=None),
+        ):
             await trigger_sync(force=True, x_sync_secret="valid-secret")
 
             mock_sync.assert_called_with(token=None, force=True)
-

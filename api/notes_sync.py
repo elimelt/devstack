@@ -4,7 +4,7 @@ import random
 import re
 from base64 import b64decode
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -41,13 +41,17 @@ class RateLimitInfo:
             remaining = int(headers.get("x-ratelimit-remaining", 0))
             reset_ts = int(headers.get("x-ratelimit-reset", 0))
             used = int(headers.get("x-ratelimit-used", 0))
-            reset_at = datetime.fromtimestamp(reset_ts, tz=timezone.utc) if reset_ts else datetime.now(timezone.utc)
+            reset_at = (
+                datetime.fromtimestamp(reset_ts, tz=UTC)
+                if reset_ts
+                else datetime.now(UTC)
+            )
             return cls(limit=limit, remaining=remaining, reset_at=reset_at, used=used)
         except (ValueError, TypeError):
             return None
 
     def wait_seconds(self) -> float:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if self.reset_at > now:
             return (self.reset_at - now).total_seconds() + 1.0
         return 0.0
@@ -66,7 +70,6 @@ class GitHubResponse:
 
 
 class GitHubClient:
-
     def __init__(self, token: str | None = None):
         self.token = token
         self._rate_limit: RateLimitInfo | None = None
@@ -92,12 +95,16 @@ class GitHubClient:
         if rate_limit and rate_limit.remaining == 0:
             wait_time = rate_limit.wait_seconds()
             if wait_time > MAX_DELAY_SECONDS:
-                logger.info(f"Rate limit reset in {wait_time:.1f}s (at {rate_limit.reset_at}), capping delay to {MAX_DELAY_SECONDS}s")
+                logger.info(
+                    f"Rate limit reset in {wait_time:.1f}s (at {rate_limit.reset_at}), capping delay to {MAX_DELAY_SECONDS}s"
+                )
                 return MAX_DELAY_SECONDS
-            logger.info(f"Rate limited. Waiting {wait_time:.1f}s until reset at {rate_limit.reset_at}")
+            logger.info(
+                f"Rate limited. Waiting {wait_time:.1f}s until reset at {rate_limit.reset_at}"
+            )
             return wait_time
 
-        base_delay = min(BASE_DELAY_SECONDS * (2 ** attempt), MAX_DELAY_SECONDS)
+        base_delay = min(BASE_DELAY_SECONDS * (2**attempt), MAX_DELAY_SECONDS)
         jitter = base_delay * JITTER_FACTOR * random.random()
         return base_delay + jitter
 
@@ -112,7 +119,9 @@ class GitHubClient:
                 if self._rate_limit and self._rate_limit.remaining == 0:
                     delay = self._rate_limit.wait_seconds()
                     if delay > MAX_DELAY_SECONDS:
-                        logger.info(f"Rate limit reset too far in future ({delay:.1f}s), returning rate limited")
+                        logger.info(
+                            f"Rate limit reset too far in future ({delay:.1f}s), returning rate limited"
+                        )
                         return GitHubResponse(
                             status_code=403,
                             data=None,
@@ -129,7 +138,9 @@ class GitHubClient:
 
                 if resp.status_code == 429:
                     delay = self._calculate_delay(attempt, rate_limit)
-                    logger.warning(f"Rate limited (429). Attempt {attempt + 1}/{max_retries + 1}. Waiting {delay:.1f}s")
+                    logger.warning(
+                        f"Rate limited (429). Attempt {attempt + 1}/{max_retries + 1}. Waiting {delay:.1f}s"
+                    )
                     if attempt < max_retries:
                         await asyncio.sleep(delay)
                         continue
@@ -142,7 +153,9 @@ class GitHubClient:
 
                 if resp.status_code == 403 and rate_limit and rate_limit.remaining == 0:
                     delay = self._calculate_delay(attempt, rate_limit)
-                    logger.warning(f"Rate limited (403). Attempt {attempt + 1}/{max_retries + 1}. Waiting {delay:.1f}s")
+                    logger.warning(
+                        f"Rate limited (403). Attempt {attempt + 1}/{max_retries + 1}. Waiting {delay:.1f}s"
+                    )
                     if attempt < max_retries:
                         await asyncio.sleep(delay)
                         continue
@@ -155,7 +168,9 @@ class GitHubClient:
 
                 if resp.status_code >= 500:
                     delay = self._calculate_delay(attempt, None)
-                    logger.warning(f"Server error ({resp.status_code}). Attempt {attempt + 1}/{max_retries + 1}. Waiting {delay:.1f}s")
+                    logger.warning(
+                        f"Server error ({resp.status_code}). Attempt {attempt + 1}/{max_retries + 1}. Waiting {delay:.1f}s"
+                    )
                     if attempt < max_retries:
                         await asyncio.sleep(delay)
                         continue
@@ -174,7 +189,9 @@ class GitHubClient:
             except httpx.TimeoutException as e:
                 last_error = e
                 delay = self._calculate_delay(attempt, None)
-                logger.warning(f"Timeout. Attempt {attempt + 1}/{max_retries + 1}. Waiting {delay:.1f}s")
+                logger.warning(
+                    f"Timeout. Attempt {attempt + 1}/{max_retries + 1}. Waiting {delay:.1f}s"
+                )
                 if attempt < max_retries:
                     await asyncio.sleep(delay)
                     continue
@@ -182,7 +199,9 @@ class GitHubClient:
             except httpx.RequestError as e:
                 last_error = e
                 delay = self._calculate_delay(attempt, None)
-                logger.warning(f"Request error: {e}. Attempt {attempt + 1}/{max_retries + 1}. Waiting {delay:.1f}s")
+                logger.warning(
+                    f"Request error: {e}. Attempt {attempt + 1}/{max_retries + 1}. Waiting {delay:.1f}s"
+                )
                 if attempt < max_retries:
                     await asyncio.sleep(delay)
                     continue
@@ -200,12 +219,12 @@ class GitHubClient:
 
 
 def parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:
-    frontmatter_pattern = r'^---\s*\n(.*?)\n---\s*\n(.*)$'
+    frontmatter_pattern = r"^---\s*\n(.*?)\n---\s*\n(.*)$"
     match = re.match(frontmatter_pattern, content, re.DOTALL)
-    
+
     if not match:
         return {}, content
-    
+
     try:
         metadata = yaml.safe_load(match.group(1))
         if metadata is None:
@@ -246,7 +265,8 @@ async def get_content_tree(client: GitHubClient) -> tuple[list[str], str | None]
     tree = resp.data.get("tree", [])
 
     md_files = [
-        item["path"] for item in tree
+        item["path"]
+        for item in tree
         if item["type"] == "blob"
         and item["path"].startswith(f"{CONTENT_PATH}/")
         and item["path"].endswith(".md")
@@ -351,11 +371,13 @@ async def sync_notes_with_job(
 
                 if resumable["status"] == "paused" and resumable.get("rate_limit_reset_at"):
                     reset_at = datetime.fromisoformat(resumable["rate_limit_reset_at"])
-                    now = datetime.now(timezone.utc)
+                    now = datetime.now(UTC)
                     if reset_at > now:
                         wait_secs = (reset_at - now).total_seconds()
                         if wait_secs > 0:
-                            logger.info(f"Resuming paused job {job_id}, waiting {wait_secs:.1f}s for rate limit reset")
+                            logger.info(
+                                f"Resuming paused job {job_id}, waiting {wait_secs:.1f}s for rate limit reset"
+                            )
                             await asyncio.sleep(min(wait_secs, 5.0))
 
                 logger.info(f"Resuming existing job {job_id} at commit {commit_sha}")
@@ -421,7 +443,9 @@ async def sync_notes_with_job(
 
                 if retry_count >= SKIP_ITEM_AFTER_RETRIES:
                     logger.info(f"Skipping {path} - exceeded max retries ({retry_count})")
-                    await db.sync_job_item_update(item_id, "skipped", f"Exceeded max retries ({retry_count})")
+                    await db.sync_job_item_update(
+                        item_id, "skipped", f"Exceeded max retries ({retry_count})"
+                    )
                     continue
 
                 success, error, is_rate_limited = await fetch_and_process_file(
@@ -452,9 +476,13 @@ async def sync_notes_with_job(
                     items_failed_this_run += 1
 
                     if retry_count + 1 >= MAX_ITEM_RETRIES:
-                        logger.warning(f"Failed to sync {path} (final attempt {retry_count + 1}): {error}")
+                        logger.warning(
+                            f"Failed to sync {path} (final attempt {retry_count + 1}): {error}"
+                        )
                     else:
-                        logger.info(f"Failed to sync {path} (attempt {retry_count + 1}/{MAX_ITEM_RETRIES}): {error}")
+                        logger.info(
+                            f"Failed to sync {path} (attempt {retry_count + 1}/{MAX_ITEM_RETRIES}): {error}"
+                        )
 
                     continue
 
@@ -464,7 +492,9 @@ async def sync_notes_with_job(
             await db.sync_job_update_counts(job_id)
 
         if items_processed_this_run > 0 or items_failed_this_run > 0:
-            logger.info(f"Processing run complete: {items_processed_this_run} succeeded, {items_failed_this_run} failed")
+            logger.info(
+                f"Processing run complete: {items_processed_this_run} succeeded, {items_failed_this_run} failed"
+            )
 
         await db.sync_job_update_counts(job_id)
         job = await db.sync_job_get(job_id)
@@ -474,13 +504,17 @@ async def sync_notes_with_job(
         skipped_count = await db.sync_job_get_skipped_count(job_id)
         result["skipped_items"] = skipped_count
 
-        result["pending"] = job["total_items"] - job["completed_items"] - job["failed_items"] - skipped_count
+        result["pending"] = (
+            job["total_items"] - job["completed_items"] - job["failed_items"] - skipped_count
+        )
 
         all_items_processed = result["pending"] == 0
 
         if rate_limited:
             result["job_status"] = "paused"
-            result["message"] = f"Paused due to rate limiting. {result['completed']}/{result['total']} completed. Will resume automatically."
+            result["message"] = (
+                f"Paused due to rate limiting. {result['completed']}/{result['total']} completed. Will resume automatically."
+            )
         elif all_items_processed and result["failed"] == 0 and skipped_count == 0:
             await db.sync_job_update_status(job_id, "completed")
             result["job_status"] = "completed"
@@ -503,7 +537,9 @@ async def sync_notes_with_job(
 
             await db.sync_job_update_status(job_id, "completed", error_message=error_summary)
             result["job_status"] = "completed_with_errors"
-            result["message"] = f"Sync completed with issues: {error_summary}. {result['completed']}/{result['total']} succeeded."
+            result["message"] = (
+                f"Sync completed with issues: {error_summary}. {result['completed']}/{result['total']} succeeded."
+            )
 
             if processed_paths:
                 all_paths = await db.sync_job_get_all_completed_paths(job_id)
